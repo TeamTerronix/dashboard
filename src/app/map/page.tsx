@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { sensorNodes, monitoringAreas, getLatestReadings } from '@/lib/mock-data';
 import { MapPin, Thermometer, ChevronDown, Layers, Box } from 'lucide-react';
+import { monitoringAreas } from '@/lib/areas';
+import { getLatestReadings } from '@/lib/api';
+import { nearestAreaId } from '@/lib/geo';
+import type { SensorNode, TemperatureReading } from '@/lib/types';
 
 const mapLoader = (
   <div
@@ -31,9 +34,56 @@ export default function MapPage() {
   const [areaDropdownOpen, setAreaDropdownOpen] = useState(false);
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('2d');
 
-  const nodes = sensorNodes;
   const areas = monitoringAreas;
-  const latestReadings = getLatestReadings();
+  const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await getLatestReadings();
+        const anyLatest = latest as any;
+        const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
+        const mapped: TemperatureReading[] = rows.map((r) => ({
+          time: r.time,
+          nodeId: String(r.sensor_uid),
+          temperature: Number(r.temperature),
+          dhw: 0,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        }));
+        if (!cancelled) setLatestReadings(mapped);
+      } catch {
+        if (!cancelled) setLatestReadings([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const nodes: SensorNode[] = useMemo(() => {
+    // Build nodes from latest readings. Some UI fields are derived (no mock).
+    return latestReadings.map((r) => {
+      const areaId = nearestAreaId(areas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const lastSync = r.time;
+      const t = Date.parse(lastSync);
+      const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
+      const status: SensorNode['status'] = ageMins < 120 ? 'online' : ageMins < 720 ? 'delayed' : 'offline';
+      return {
+        id: r.nodeId,
+        name: r.nodeId,
+        areaId,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        depth: 0,
+        battery: 0,
+        status,
+        lastSync,
+        totalReadings: 0,
+      };
+    });
+  }, [areas, latestReadings]);
 
   const currentArea = areas.find((a) => a.id === selectedArea);
   const areaNodes = selectedArea ? nodes.filter((n) => n.areaId === selectedArea) : nodes;

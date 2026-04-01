@@ -5,9 +5,11 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
   ResponsiveContainer, Area, AreaChart, Legend,
 } from 'recharts';
-import { generateForecast, zoneRisks, trainingHistory, generatePredictionGrid } from '@/lib/mock-data';
 import { tempToColor } from '@/lib/utils';
 import type { PredictionPoint, ForecastData } from '@/lib/types';
+import { getDHW, getLatestReadings, getPredictions, getSST } from '@/lib/api';
+import { monitoringAreas } from '@/lib/areas';
+import { nearestAreaId } from '@/lib/geo';
 
 type ModelType = 'PINN' | 'LSTM' | 'Ensemble';
 type Horizon = '72h' | '7d' | '30d';
@@ -22,18 +24,161 @@ export default function PredictionsPage() {
   const [forecastData, setForecastData] = useState<ForecastData[]>([]);
   const [predGrid, setPredGrid] = useState<PredictionPoint[]>([]);
   const [dhwData, setDhwData] = useState<{ week: string; dhw: number }[]>([]);
+  const [zoneRisks, setZoneRisks] = useState<{ zone: string; risk: number }[]>([]);
 
   useEffect(() => {
-    setForecastData(generateForecast(horizonDays));
+    let cancelled = false;
+    (async () => {
+      try {
+        const [sst, preds] = await Promise.all([
+          getSST(undefined, undefined, 5000),
+          getPredictions(0, 5000),
+        ]);
+
+        const anySst = sst as any;
+        const sstRows = (Array.isArray(anySst?.value) ? anySst.value : anySst) as any[];
+        const anyPreds = preds as any;
+        const predRows = (Array.isArray(anyPreds?.value) ? anyPreds.value : anyPreds) as any[];
+
+        // Historical: daily mean of actual temperatures (last 7 days)
+        const histAgg: Record<string, { sum: number; n: number }> = {};
+        for (const r of sstRows) {
+          const day = String(r.time).slice(0, 10);
+          if (!histAgg[day]) histAgg[day] = { sum: 0, n: 0 };
+          const t = Number(r.temperature);
+          if (Number.isFinite(t)) {
+            histAgg[day].sum += t;
+            histAgg[day].n += 1;
+          }
+        }
+        const histDays = Object.keys(histAgg).sort().slice(-7);
+        const historical = histDays.map((d) => {
+          const a = histAgg[d];
+          const mean = a.n ? a.sum / a.n : 0;
+          return { time: d, actual: Number(mean.toFixed(2)) };
+        });
+
+        // Forecast: daily mean of predicted temps for the next horizonDays
+        const predAgg: Record<string, { sum: number; n: number }> = {};
+        for (const p of predRows) {
+          const day = String(p.target_timestamp).slice(0, 10);
+          if (!predAgg[day]) predAgg[day] = { sum: 0, n: 0 };
+          const t = Number(p.predicted_temp);
+          if (Number.isFinite(t)) {
+            predAgg[day].sum += t;
+            predAgg[day].n += 1;
+          }
+        }
+        const futureDays = Object.keys(predAgg).sort().slice(0, horizonDays + 7);
+        const forecast = futureDays.slice(-horizonDays).map((d) => {
+          const a = predAgg[d];
+          const mean = a.n ? a.sum / a.n : 0;
+          const ci = confidence === 95 ? 0.6 : 0.45;
+          return {
+            time: d,
+            predicted: Number(mean.toFixed(2)),
+            upperBound: Number((mean + ci).toFixed(2)),
+            lowerBound: Number((mean - ci).toFixed(2)),
+          };
+        });
+
+        const merged: ForecastData[] = [
+          ...historical.map((h) => ({
+            time: h.time,
+            actual: h.actual,
+            predicted: h.actual,
+            upperBound: h.actual + 0.2,
+            lowerBound: h.actual - 0.2,
+          })),
+          ...forecast,
+        ];
+
+        if (!cancelled) setForecastData(merged);
+      } catch {
+        if (!cancelled) setForecastData([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [horizonDays]);
 
   useEffect(() => {
     setMounted(true);
-    setPredGrid(generatePredictionGrid());
-    setDhwData(Array.from({ length: 12 }, (_, i) => ({
-      week: `W${i + 1}`,
-      dhw: Math.max(0, 0.5 * i + Math.random() * 1.5 - 0.5),
-    })));
+    let cancelled = false;
+    (async () => {
+      try {
+        const [latest, dhw, preds] = await Promise.all([
+          getLatestReadings(),
+          getDHW(undefined, undefined, 5000),
+          getPredictions(0, 5000),
+        ]);
+
+        const anyLatest = latest as any;
+        const latestRows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
+        const points: PredictionPoint[] = latestRows
+          .filter((r) => r.latitude != null && r.longitude != null)
+          .map((r) => {
+            const temp = Number(r.temperature);
+            const riskScore = Math.min(1, Math.max(0, (temp - 27) / 4));
+            const riskLevel = temp < 28 ? 0 : temp < 30 ? 1 : 2;
+            return {
+              latitude: Number(r.latitude),
+              longitude: Number(r.longitude),
+              temperature: temp,
+              riskScore,
+              riskLevel,
+            };
+          });
+        if (!cancelled) setPredGrid(points);
+
+        // DHW: bucket into "W1..W12" from oldest->newest using returned series
+        const anyDhw = dhw as any;
+        const dhwRows = (Array.isArray(anyDhw?.value) ? anyDhw.value : anyDhw) as any[];
+        const vals = dhwRows.map((x) => Number(x.dhw)).filter((v) => Number.isFinite(v));
+        const chunk = Math.max(1, Math.floor(vals.length / 12));
+        const weeks = Array.from({ length: 12 }, (_, i) => {
+          const slice = vals.slice(i * chunk, (i + 1) * chunk);
+          const avg = slice.length ? slice.reduce((a, b) => a + b, 0) / slice.length : 0;
+          return { week: `W${i + 1}`, dhw: Number(avg.toFixed(2)) };
+        });
+        if (!cancelled) setDhwData(weeks);
+
+        // Zone risks from predictions + latest coords
+        const anyPreds = preds as any;
+        const predRows = (Array.isArray(anyPreds?.value) ? anyPreds.value : anyPreds) as any[];
+        const sensorArea = new Map<number, string>();
+        for (const r of latestRows) {
+          const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude);
+          if (areaId) sensorArea.set(Number(r.sensor_id), areaId);
+        }
+        const byArea: Record<string, { sum: number; n: number }> = {};
+        for (const a of monitoringAreas) byArea[a.id] = { sum: 0, n: 0 };
+        for (const p of predRows) {
+          const areaId = sensorArea.get(Number(p.sensor_id));
+          if (!areaId) continue;
+          const rs = p.risk_score;
+          if (rs == null) continue;
+          byArea[areaId].sum += Number(rs);
+          byArea[areaId].n += 1;
+        }
+        const zr = monitoringAreas.map((a) => {
+          const agg = byArea[a.id];
+          const avg = agg.n ? agg.sum / agg.n : 0;
+          return { zone: a.name, risk: Math.round(avg * 100) };
+        });
+        if (!cancelled) setZoneRisks(zr);
+      } catch {
+        if (!cancelled) {
+          setPredGrid([]);
+          setDhwData([]);
+          setZoneRisks(monitoringAreas.map((a) => ({ zone: a.name, risk: 0 })));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Map dims

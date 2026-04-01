@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ComposedChart,
   Line,
@@ -12,65 +12,15 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { temperatureReadings, sensorNodes, generateForecast } from '@/lib/mock-data';
 import { useDashboardStore } from '@/lib/store';
+import { getSST, getPredictions } from '@/lib/api';
+import type { TemperatureReading } from '@/lib/types';
 
 const NODE_COLORS = [
   '#00E5FF', '#1DE9B6', '#FFB300', '#FF5252', '#7C4DFF',
   '#FF6E40', '#64FFDA', '#FFAB40', '#69F0AE', '#40C4FF',
   '#B388FF', '#FF80AB', '#A7FFEB', '#FFD180', '#CCFF90', '#84FFFF',
 ];
-
-// ── Data helpers ───────────────────────────────────────────────────────────────
-
-/**
- * Merges the last 14 days of historical readings with a 7-day PINN forecast
- * per selected node.  Historical keys: nodeId.  Forecast keys: nodeId + "_fc".
- * Both share the same `date` axis so the chart reads as one continuous timeline.
- */
-function buildChartData(selectedNodes: string[]) {
-  const HISTORICAL_DAYS = 14;
-  const FORECAST_DAYS = 7;
-
-  // ── Historical ────────────────────────────────────────────────────────────
-  const dateMap: Record<string, Record<string, number>> = {};
-
-  for (const r of temperatureReadings) {
-    if (!selectedNodes.includes(r.nodeId)) continue;
-    const date = r.time.split('T')[0];
-    if (!dateMap[date]) dateMap[date] = {};
-    dateMap[date][r.nodeId] = r.temperature;
-  }
-
-  const historicalEntries = Object.entries(dateMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(-HISTORICAL_DAYS);
-
-  // ── Forecast (per-node with small per-node variation) ─────────────────────
-  const baseForecast = generateForecast(FORECAST_DAYS);
-  const forecastRows = baseForecast.filter((f) => f.actual === undefined);
-
-  // ── Combine ───────────────────────────────────────────────────────────────
-  const combined: Record<string, number | string>[] = [];
-
-  for (const [date, nodes] of historicalEntries) {
-    combined.push({ date: date.slice(5), ...nodes });
-  }
-
-  for (let i = 0; i < forecastRows.length; i++) {
-    const row: Record<string, number | string> = {
-      date: forecastRows[i].time.slice(5),
-    };
-    for (const nodeId of selectedNodes) {
-      const nodeNum = parseInt(nodeId.replace(/^[A-Z]+-/, ''), 10) || 1;
-      const variation = (nodeNum - 8) * 0.04;
-      row[`${nodeId}_fc`] = parseFloat((forecastRows[i].predicted + variation).toFixed(2));
-    }
-    combined.push(row);
-  }
-
-  return combined;
-}
 
 // ── Custom Legend ──────────────────────────────────────────────────────────────
 
@@ -94,13 +44,96 @@ function CustomLegend() {
 export default function TemperatureChart() {
   const { selectedNodes } = useDashboardStore();
   const [mounted, setMounted] = useState(false);
+  const [readings, setReadings] = useState<TemperatureReading[]>([]);
+  const [forecastByNode, setForecastByNode] = useState<Record<string, { time: string; predicted: number }[]>>({});
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const chartData = buildChartData(selectedNodes);
-  const activeNodes = sensorNodes.filter((n) => selectedNodes.includes(n.id));
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sst = await getSST(undefined, undefined, 5000);
+        const anySst = sst as any;
+        const rows = (Array.isArray(anySst?.value) ? anySst.value : anySst) as any[];
+        const mapped: TemperatureReading[] = rows.map((r) => ({
+          time: r.time,
+          nodeId: String(r.sensor_uid ?? r.sensor_id ?? 'unknown'),
+          temperature: Number(r.temperature),
+          dhw: 0,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        }));
+        if (!cancelled) setReadings(mapped);
+      } catch {
+        if (!cancelled) setReadings([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const preds = await getPredictions(0, 5000);
+        const anyPreds = preds as any;
+        const rows = (Array.isArray(anyPreds?.value) ? anyPreds.value : anyPreds) as any[];
+        const by: Record<string, { time: string; predicted: number }[]> = {};
+        for (const p of rows) {
+          const nodeId = String(p.sensor_uid ?? p.sensor_id ?? 'unknown');
+          if (!by[nodeId]) by[nodeId] = [];
+          by[nodeId].push({ time: String(p.target_timestamp), predicted: Number(p.predicted_temp) });
+        }
+        for (const k of Object.keys(by)) by[k].sort((a, b) => a.time.localeCompare(b.time));
+        if (!cancelled) setForecastByNode(by);
+      } catch {
+        if (!cancelled) setForecastByNode({});
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const chartData = useMemo(() => {
+    const dateMap: Record<string, Record<string, number>> = {};
+    for (const r of readings) {
+      if (!selectedNodes.includes(r.nodeId)) continue;
+      const date = r.time.split('T')[0];
+      if (!dateMap[date]) dateMap[date] = {};
+      dateMap[date][r.nodeId] = r.temperature;
+    }
+
+    const historicalEntries = Object.entries(dateMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-14);
+
+    const combined: Record<string, number | string>[] = [];
+    for (const [date, nodes] of historicalEntries) combined.push({ date: date.slice(5), ...nodes });
+
+    // Forecast: use predictions table (first 7 days) if available
+    const horizon = 7 * 24;
+    const firstNode = selectedNodes[0];
+    const anyForecast = firstNode ? (forecastByNode[firstNode] ?? []) : [];
+    const fcSlice = anyForecast.slice(0, horizon);
+    for (const item of fcSlice) {
+      const row: Record<string, number | string> = { date: String(item.time).slice(5, 10) };
+      for (const nodeId of selectedNodes) {
+        const series = forecastByNode[nodeId];
+        const match = series?.find((s) => s.time === item.time);
+        if (match) row[`${nodeId}_fc`] = Number(match.predicted.toFixed(2));
+      }
+      combined.push(row);
+    }
+    return combined;
+  }, [forecastByNode, readings, selectedNodes]);
+
+  const activeNodeIds = selectedNodes;
 
   return (
     <div
@@ -176,12 +209,12 @@ export default function TemperatureChart() {
               />
 
               {/* Historical lines — solid */}
-              {activeNodes.map((node, i) => (
+              {activeNodeIds.map((nodeId, i) => (
                 <Line
-                  key={node.id}
+                  key={nodeId}
                   type="monotone"
-                  dataKey={node.id}
-                  name={node.id}
+                  dataKey={nodeId}
+                  name={nodeId}
                   stroke={NODE_COLORS[i % NODE_COLORS.length]}
                   strokeWidth={1.8}
                   dot={false}
@@ -191,12 +224,12 @@ export default function TemperatureChart() {
               ))}
 
               {/* Forecast lines — dashed, same color, slightly thinner */}
-              {activeNodes.map((node, i) => (
+              {activeNodeIds.map((nodeId, i) => (
                 <Line
-                  key={`${node.id}_fc`}
+                  key={`${nodeId}_fc`}
                   type="monotone"
-                  dataKey={`${node.id}_fc`}
-                  name={`${node.id}_fc`}
+                  dataKey={`${nodeId}_fc`}
+                  name={`${nodeId}_fc`}
                   stroke={NODE_COLORS[i % NODE_COLORS.length]}
                   strokeWidth={1.5}
                   strokeDasharray="6 3"

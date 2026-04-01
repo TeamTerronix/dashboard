@@ -1,52 +1,135 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import KPICard from '@/components/dashboard/KPICard';
 import MiniHeatmap from '@/components/dashboard/MiniHeatmap';
 import AlertFeed from '@/components/dashboard/AlertFeed';
 import MLQuickInsight from '@/components/dashboard/MLQuickInsight';
-import { dashboardKPIs, monitoringAreas, sensorNodes, getLatestReadings } from '@/lib/mock-data';
 import { ChevronDown, MapPin, Thermometer, Activity, Wifi, WifiOff, Clock } from 'lucide-react';
 import Link from 'next/link';
-
-function getAreaHealthInfo(areaId: string | null) {
-  const latest = getLatestReadings();
-  const nodes = areaId ? sensorNodes.filter((n) => n.areaId === areaId) : sensorNodes;
-  const online = nodes.filter((n) => n.status === 'online');
-  const delayed = nodes.filter((n) => n.status === 'delayed');
-  const offline = nodes.filter((n) => n.status === 'offline');
-
-  const temps: number[] = [];
-  for (const n of nodes) {
-    const r = latest.find((l) => l.nodeId === n.id);
-    if (r && !isNaN(r.temperature)) temps.push(r.temperature);
-  }
-
-  const avg = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
-  const max = temps.length > 0 ? Math.max(...temps) : 0;
-  const min = temps.length > 0 ? Math.min(...temps) : 0;
-  const health = avg < 28 ? 'Healthy' : avg < 30 ? 'Warning' : 'Danger';
-  const healthColor = avg < 28 ? '#00cc66' : avg < 30 ? '#ddaa00' : '#ee3333';
-  const healthEmoji = avg < 28 ? '🟢' : avg < 30 ? '🟡' : '🔴';
-
-  return { nodes, online, delayed, offline, temps, avg, max, min, health, healthColor, healthEmoji };
-}
+import { monitoringAreas } from '@/lib/areas';
+import { getLatestReadings } from '@/lib/api';
+import { nearestAreaId } from '@/lib/geo';
+import type { DashboardKPI, SensorNode, TemperatureReading } from '@/lib/types';
+import { useDashboardStore } from '@/lib/store';
 
 export default function DashboardPage() {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const currentArea = monitoringAreas.find((a) => a.id === selectedArea);
+  const { setAvailableNodes } = useDashboardStore();
 
-  const areaInfo = useMemo(() => getAreaHealthInfo(selectedArea), [selectedArea]);
+  const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await getLatestReadings();
+        const anyLatest = latest as any;
+        const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
+        const mapped: TemperatureReading[] = rows.map((r) => ({
+          time: r.time,
+          nodeId: String(r.sensor_uid),
+          temperature: Number(r.temperature),
+          dhw: 0,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        }));
+        if (!cancelled) {
+          setLatestReadings(mapped);
+          setAvailableNodes(mapped.map((m) => m.nodeId));
+        }
+      } catch {
+        if (!cancelled) setLatestReadings([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setAvailableNodes]);
+
+  const sensorNodes: SensorNode[] = useMemo(() => {
+    return latestReadings.map((r) => {
+      const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const t = Date.parse(r.time);
+      const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
+      const status: SensorNode['status'] = ageMins < 120 ? 'online' : ageMins < 720 ? 'delayed' : 'offline';
+      return {
+        id: r.nodeId,
+        name: r.nodeId,
+        areaId,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        depth: 0,
+        battery: 0,
+        status,
+        lastSync: r.time,
+        totalReadings: 0,
+      };
+    });
+  }, [latestReadings]);
+
+  const areaInfo = useMemo(() => {
+    const nodes = selectedArea ? sensorNodes.filter((n) => n.areaId === selectedArea) : sensorNodes;
+    const online = nodes.filter((n) => n.status === 'online');
+    const delayed = nodes.filter((n) => n.status === 'delayed');
+    const offline = nodes.filter((n) => n.status === 'offline');
+
+    const temps: number[] = [];
+    for (const n of nodes) {
+      const r = latestReadings.find((l) => l.nodeId === n.id);
+      if (r && !Number.isNaN(r.temperature)) temps.push(r.temperature);
+    }
+
+    const avg = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+    const max = temps.length > 0 ? Math.max(...temps) : 0;
+    const min = temps.length > 0 ? Math.min(...temps) : 0;
+    const health = avg < 28 ? 'Healthy' : avg < 30 ? 'Warning' : 'Danger';
+    const healthColor = avg < 28 ? '#00cc66' : avg < 30 ? '#ddaa00' : '#ee3333';
+    const healthEmoji = avg < 28 ? '🟢' : avg < 30 ? '🟡' : '🔴';
+    return { nodes, online, delayed, offline, temps, avg, max, min, health, healthColor, healthEmoji };
+  }, [latestReadings, selectedArea, sensorNodes]);
 
   // Per-area cards data
   const areaCards = useMemo(() => {
     return monitoringAreas.map((area) => {
-      const info = getAreaHealthInfo(area.id);
+      const info = (() => {
+        const nodes = sensorNodes.filter((n) => n.areaId === area.id);
+        const online = nodes.filter((n) => n.status === 'online');
+        const delayed = nodes.filter((n) => n.status === 'delayed');
+        const offline = nodes.filter((n) => n.status === 'offline');
+        const temps = latestReadings
+          .filter((r) => nodes.some((n) => n.id === r.nodeId))
+          .map((r) => r.temperature)
+          .filter((t) => !Number.isNaN(t));
+        const avg = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+        const max = temps.length ? Math.max(...temps) : 0;
+        const min = temps.length ? Math.min(...temps) : 0;
+        const health = avg < 28 ? 'Healthy' : avg < 30 ? 'Warning' : 'Danger';
+        const healthColor = avg < 28 ? '#00cc66' : avg < 30 ? '#ddaa00' : '#ee3333';
+        const healthEmoji = avg < 28 ? '🟢' : avg < 30 ? '🟡' : '🔴';
+        return { nodes, online, delayed, offline, temps, avg, max, min, health, healthColor, healthEmoji };
+      })();
       return { area, info };
     });
-  }, []);
+  }, [latestReadings, sensorNodes]);
+
+  const dashboardKPIs: DashboardKPI[] = useMemo(() => {
+    const temps = latestReadings.map((r) => r.temperature).filter((t) => !Number.isNaN(t));
+    const mean = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+    const max = temps.length ? Math.max(...temps) : 0;
+    const online = sensorNodes.filter((n) => n.status === 'online').length;
+    const total = sensorNodes.length;
+    return [
+      { label: 'Current Mean T°', value: mean.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: mean >= 30 ? 'danger' : mean >= 28 ? 'warning' : 'normal' },
+      { label: 'Max Temp', value: max.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: max >= 31 ? 'danger' : max >= 30 ? 'warning' : 'normal' },
+      { label: 'Active Nodes', value: `${online}/${total}`, unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: total && online / total < 0.6 ? 'warning' : 'normal' },
+      { label: 'Areas', value: String(monitoringAreas.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
+      { label: 'Latest Readings', value: String(latestReadings.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
+    ];
+  }, [latestReadings, sensorNodes]);
 
   return (
     <div className="space-y-6">
@@ -107,7 +190,15 @@ export default function DashboardPage() {
                 </span>
               </button>
               {monitoringAreas.map((a) => {
-                const info = getAreaHealthInfo(a.id);
+                const nodes = sensorNodes.filter((n) => n.areaId === a.id);
+                const online = nodes.filter((n) => n.status === 'online');
+                const temps = latestReadings
+                  .filter((r) => nodes.some((n) => n.id === r.nodeId))
+                  .map((r) => r.temperature)
+                  .filter((t) => !Number.isNaN(t));
+                const avg = temps.length ? temps.reduce((x, y) => x + y, 0) / temps.length : 0;
+                const healthColor = avg < 28 ? '#00cc66' : avg < 30 ? '#ddaa00' : '#ee3333';
+                const info = { nodes, online, healthColor };
                 return (
                   <button
                     key={a.id}

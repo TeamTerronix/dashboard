@@ -1,12 +1,63 @@
 'use client';
 
-import { sensorNodes, monitoringAreas } from '@/lib/mock-data';
 import { Battery, Wifi, WifiOff, Clock, Signal } from 'lucide-react';
 import { timeAgo } from '@/lib/utils';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getLatestReadings } from '@/lib/api';
+import { monitoringAreas } from '@/lib/areas';
+import { nearestAreaId } from '@/lib/geo';
+import type { SensorNode, TemperatureReading } from '@/lib/types';
 
 export default function NodesPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+
+  const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await getLatestReadings();
+        const anyLatest = latest as any;
+        const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
+        const mapped: TemperatureReading[] = rows.map((r) => ({
+          time: r.time,
+          nodeId: String(r.sensor_uid),
+          temperature: Number(r.temperature),
+          dhw: 0,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        }));
+        if (!cancelled) setLatestReadings(mapped);
+      } catch {
+        if (!cancelled) setLatestReadings([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sensorNodes: SensorNode[] = useMemo(() => {
+    return latestReadings.map((r) => {
+      const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const t = Date.parse(r.time);
+      const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
+      const status: SensorNode['status'] = ageMins < 120 ? 'online' : ageMins < 2880 ? 'delayed' : 'offline';
+      return {
+        id: r.nodeId,
+        name: r.nodeId,
+        areaId,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        depth: 0,
+        battery: 0,
+        status,
+        lastSync: r.time,
+        totalReadings: 0,
+      };
+    });
+  }, [latestReadings]);
 
   const onlineCount = sensorNodes.filter((n) => n.status === 'online').length;
   const delayedCount = sensorNodes.filter((n) => n.status === 'delayed').length;
@@ -119,7 +170,7 @@ export default function NodesPage() {
                       <Battery
                         className="w-3.5 h-3.5"
                         style={{
-                          color: node.battery > 50 ? 'var(--accent-teal)' : node.battery > 20 ? 'var(--warn-amber)' : 'var(--danger-coral)',
+                          color: 'var(--text-secondary)',
                         }}
                       />
                       <span className="font-mono">{node.battery}%</span>

@@ -1,9 +1,6 @@
 // Zustand store for global dashboard state
 
 import { create } from 'zustand';
-import { sensorNodes } from './mock-data';
-
-const allNodeIds = sensorNodes.map((n) => n.id);
 
 interface DashboardState {
   // Sidebar
@@ -13,6 +10,10 @@ interface DashboardState {
   // Date range
   dateRange: { from: string; to: string };
   setDateRange: (from: string, to: string) => void;
+
+  // Available nodes (from backend)
+  availableNodes: string[];
+  setAvailableNodes: (nodeIds: string[]) => void;
 
   // Selected nodes
   selectedNodes: string[];
@@ -36,14 +37,22 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   dateRange: { from: '2026-01-26', to: '2026-02-25' },
   setDateRange: (from, to) => set({ dateRange: { from, to } }),
 
-  selectedNodes: allNodeIds,
+  availableNodes: [],
+  setAvailableNodes: (nodeIds) =>
+    set((s) => ({
+      availableNodes: nodeIds,
+      // If nothing selected yet, auto-select all loaded nodes.
+      selectedNodes: s.selectedNodes.length === 0 ? nodeIds : s.selectedNodes,
+    })),
+
+  selectedNodes: [],
   toggleNode: (nodeId) =>
     set((s) => ({
       selectedNodes: s.selectedNodes.includes(nodeId)
         ? s.selectedNodes.filter((id) => id !== nodeId)
         : [...s.selectedNodes, nodeId],
     })),
-  selectAllNodes: () => set({ selectedNodes: allNodeIds }),
+  selectAllNodes: () => set((s) => ({ selectedNodes: s.availableNodes })),
   deselectAllNodes: () => set({ selectedNodes: [] }),
 
   unit: 'celsius',

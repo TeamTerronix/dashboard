@@ -1,10 +1,78 @@
 'use client';
 
-import { zoneRisks } from '@/lib/mock-data';
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { getLatestReadings, getPredictions } from '@/lib/api';
+import { monitoringAreas } from '@/lib/areas';
+import { nearestAreaId } from '@/lib/geo';
 
 export default function MLQuickInsight() {
+  const [loading, setLoading] = useState(true);
+  const [zoneRisks, setZoneRisks] = useState<{ zone: string; risk: number }[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [latest, preds] = await Promise.all([
+          getLatestReadings(),
+          getPredictions(0, 1000),
+        ]);
+
+        // Map sensor_id -> area
+        const sensorArea = new Map<number, string>();
+        const anyLatest = latest as any;
+        const latestRows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
+        for (const r of latestRows) {
+          const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude);
+          if (areaId) sensorArea.set(Number(r.sensor_id), areaId);
+        }
+
+        // Avg risk_score per area (first ~72h window by earliest timestamps)
+        const byArea: Record<string, { sum: number; n: number }> = {};
+        for (const a of monitoringAreas) byArea[a.id] = { sum: 0, n: 0 };
+
+        const anyPreds = preds as any;
+        const predRows = (Array.isArray(anyPreds?.value) ? anyPreds.value : anyPreds) as any[];
+        for (const p of predRows) {
+          const sid = Number(p.sensor_id);
+          const areaId = sensorArea.get(sid);
+          if (!areaId) continue;
+          const rs = p.risk_score;
+          if (rs == null || Number.isNaN(Number(rs))) continue;
+          byArea[areaId].sum += Number(rs);
+          byArea[areaId].n += 1;
+        }
+
+        const next = monitoringAreas.map((a) => {
+          const agg = byArea[a.id];
+          const avg = agg.n ? agg.sum / agg.n : 0;
+          return { zone: a.name, risk: Math.round(avg * 100) };
+        });
+
+        if (!cancelled) {
+          setZoneRisks(next);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) {
+          setZoneRisks(monitoringAreas.map((a) => ({ zone: a.name, risk: 0 })));
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const headline = useMemo(() => {
+    const top = [...zoneRisks].sort((a, b) => b.risk - a.risk)[0];
+    if (!top) return 'No forecast data available yet.';
+    return `${top.risk}% relative risk in ${top.zone} based on stored predictions.`;
+  }, [zoneRisks]);
+
   return (
     <div
       className="rounded-xl border p-4 flex flex-col gap-3"
@@ -15,8 +83,8 @@ export default function MLQuickInsight() {
       </h3>
 
       <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-        <span className="font-bold" style={{ color: 'var(--warn-amber)' }}>72h forecast:</span>{' '}
-        68% probability of Zone-A exceeding 29°C based on PINN model output.
+        <span className="font-bold" style={{ color: 'var(--warn-amber)' }}>Forecast:</span>{' '}
+        {loading ? 'Loading…' : headline}
       </p>
 
       <div className="space-y-2 mt-1">

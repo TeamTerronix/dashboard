@@ -13,8 +13,12 @@
  */
 
 import { useMemo, useState } from 'react';
-import { sensorNodes, monitoringAreas } from '@/lib/mock-data';
 import { ShieldCheck, Wifi, WifiOff, Clock, Battery, Search, RefreshCw } from 'lucide-react';
+import { monitoringAreas } from '@/lib/areas';
+import { nearestAreaId } from '@/lib/geo';
+import { getLatestReadings } from '@/lib/api';
+import type { SensorNode, TemperatureReading } from '@/lib/types';
+import { useEffect } from 'react';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -53,11 +57,56 @@ export default function AdminHealthPage() {
   const [search, setSearch] = useState('');
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const latest = await getLatestReadings();
+        const anyLatest = latest as any;
+        const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
+        const mapped: TemperatureReading[] = rows.map((r) => ({
+          time: r.time,
+          nodeId: String(r.sensor_uid),
+          temperature: Number(r.temperature),
+          dhw: 0,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        }));
+        if (!cancelled) setLatestReadings(mapped);
+      } catch {
+        if (!cancelled) setLatestReadings([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sensorNodes: SensorNode[] = useMemo(() => {
+    return latestReadings.map((r) => {
+      const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      return {
+        id: r.nodeId,
+        name: r.nodeId,
+        areaId,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        depth: 0,
+        battery: 0,
+        status: 'online',
+        lastSync: r.time,
+        totalReadings: 0,
+      };
+    });
+  }, [latestReadings]);
 
   // Reference "now" = latest lastSync across all nodes
   const latestKnown = useMemo(() => {
+    if (sensorNodes.length === 0) return new Date();
     return new Date(Math.max(...sensorNodes.map((n) => parseSync(n.lastSync).getTime())));
-  }, []);
+  }, [sensorNodes]);
 
   const rows = useMemo(() => {
     return sensorNodes
@@ -73,7 +122,7 @@ export default function AdminHealthPage() {
         if (statusFilter !== 'all' && n.connectivity !== statusFilter) return false;
         return true;
       });
-  }, [search, areaFilter, statusFilter, latestKnown]);
+  }, [search, areaFilter, statusFilter, latestKnown, sensorNodes]);
 
   const online  = rows.filter((n) => n.connectivity === 'online').length;
   const delayed = rows.filter((n) => n.connectivity === 'delayed').length;

@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/layout/Sidebar";
-import TopBar from "@/components/layout/TopBar";
 import { Toaster } from "sonner";
-import { AlertWebSocket } from "@/lib/websocket";
+import AuthShell from "@/components/auth/AuthShell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,9 +27,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {/* Real-time alert WebSocket — renders nothing, fires toasts */}
-        <AlertWebSocket />
-
         {/* Global toast container */}
         <Toaster
           position="top-right"
@@ -47,13 +42,7 @@ export default function RootLayout({
           }}
         />
 
-        <Sidebar />
-        <div className="ml-56 min-h-screen flex flex-col transition-all duration-300">
-          <TopBar />
-          <main className="flex-1 p-6 overflow-auto">
-            {children}
-          </main>
-        </div>
+        <AuthShell>{children}</AuthShell>
       </body>
     </html>
   );

@@ -1,12 +1,19 @@
 'use client';
 
 import { useDashboardStore } from '@/lib/store';
-import { Bell, Thermometer, Calendar, RefreshCw } from 'lucide-react';
-import { alerts } from '@/lib/mock-data';
+import { Bell, Thermometer, Calendar, RefreshCw, LogIn, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { clearToken, getToken } from '@/lib/auth';
+import { useEffect, useState } from 'react';
 
 export default function TopBar() {
   const { dateRange, setDateRange, unit, toggleUnit } = useDashboardStore();
-  const activeAlerts = alerts.filter((a) => !a.acknowledged && a.type !== 'resolved').length;
+  const activeAlerts = 0;
+  const [hasToken, setHasToken] = useState(false);
+
+  useEffect(() => {
+    setHasToken(Boolean(getToken()));
+  }, []);
 
   return (
     <header
@@ -47,6 +54,33 @@ export default function TopBar() {
 
       {/* Right: Controls */}
       <div className="flex items-center gap-3">
+        {/* Auth */}
+        {hasToken ? (
+          <button
+            onClick={() => {
+              clearToken();
+              setHasToken(false);
+              window.location.href = '/login';
+            }}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono cursor-pointer transition-colors hover:bg-[var(--bg-elevated)]"
+            style={{ color: 'var(--text-secondary)' }}
+            title="Logout"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            Logout
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs font-mono cursor-pointer transition-colors hover:bg-[var(--bg-elevated)]"
+            style={{ color: 'var(--accent-cyan)' }}
+            title="Login"
+          >
+            <LogIn className="w-3.5 h-3.5" />
+            Login
+          </Link>
+        )}
+
         {/* Live indicator */}
         <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-secondary)' }}>
           <span className="relative flex h-2 w-2">

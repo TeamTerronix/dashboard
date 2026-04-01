@@ -5,8 +5,9 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, ZAxis,
 } from 'recharts';
-import { temperatureReadings, sensorNodes } from '@/lib/mock-data';
 import { useDashboardStore } from '@/lib/store';
+import { getSST } from '@/lib/api';
+import type { TemperatureReading } from '@/lib/types';
 
 const COLORS = [
   '#00E5FF', '#1DE9B6', '#FFB300', '#FF5252', '#7C4DFF',
@@ -17,9 +18,35 @@ const COLORS = [
 export default function AnalyticsPage() {
   const { selectedNodes } = useDashboardStore();
   const [mounted, setMounted] = useState(false);
+  const [temperatureReadings, setTemperatureReadings] = useState<TemperatureReading[]>([]);
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const sst = await getSST(undefined, undefined, 5000);
+        const anySst = sst as any;
+        const rows = (Array.isArray(anySst?.value) ? anySst.value : anySst) as any[];
+        const mapped: TemperatureReading[] = rows.map((r) => ({
+          time: r.time,
+          nodeId: String(r.sensor_uid ?? r.sensor_id ?? 'unknown'),
+          temperature: Number(r.temperature),
+          dhw: 0,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        }));
+        if (!cancelled) setTemperatureReadings(mapped);
+      } catch {
+        if (!cancelled) setTemperatureReadings([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Time series data (kept for distribution/stats)
@@ -79,10 +106,13 @@ export default function AnalyticsPage() {
       if (!byDate[date]) byDate[date] = {};
       byDate[date][r.nodeId] = r.temperature;
     }
+    const a = selectedNodes[0];
+    const b = selectedNodes[1];
+    if (!a || !b) return [];
     return Object.values(byDate)
-      .filter((d) => d['BR-01'] && d['BR-07'])
-      .map((d) => ({ x: d['BR-01'], y: d['BR-07'] }));
-  }, []);
+      .filter((d) => (d[a] != null) && (d[b] != null))
+      .map((d) => ({ x: d[a], y: d[b] }));
+  }, [selectedNodes, temperatureReadings]);
 
   return (
     <div className="space-y-6">
@@ -135,7 +165,7 @@ export default function AnalyticsPage() {
           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
         >
           <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-            Correlation: BR-01 vs BR-07
+            Correlation: selected node pair
           </h3>
           <div className="h-48">
             {mounted ? (
