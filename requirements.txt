@@ -1,0 +1,7 @@
+# Dashboard dependencies are managed with npm via package.json.
+# This file documents runtime tool requirements for the dashboard workspace.
+
+# Install JS dependencies from this folder:
+#   npm install
+# Run development server:
+#   npm run dev
