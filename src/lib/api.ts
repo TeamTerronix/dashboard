@@ -4,8 +4,7 @@
  */
 
 import type { TemperatureReading } from './types';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_BASE } from './api-base';
 
 async function fetchAPI<T>(endpoint: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {

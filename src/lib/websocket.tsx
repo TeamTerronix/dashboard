@@ -17,8 +17,7 @@ import { useEffect, useState } from 'react';
 import useWebSocket from 'react-use-websocket';
 import { toast } from 'sonner';
 
-const WS_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000')
-  .replace(/^http/, 'ws');   // http→ws, https→wss
+import { getWebSocketBase } from './api-base';
 
 interface AlertMessage {
   type: string;
@@ -31,7 +30,7 @@ interface AlertMessage {
 }
 
 function AlertWebSocketInner({ token }: { token: string }) {
-  const url = `${WS_BASE}/ws/alerts?token=${encodeURIComponent(token)}`;
+  const url = `${getWebSocketBase()}/ws/alerts?token=${encodeURIComponent(token)}`;
 
   const { lastJsonMessage } = useWebSocket(url, {
     shouldReconnect: () => true,
