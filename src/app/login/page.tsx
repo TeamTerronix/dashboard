@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { loginWithPassword, setToken, clearToken, getToken } from '@/lib/auth';
+import { loginWithPassword, setToken, clearToken, getToken, subscribeAuthChanged } from '@/lib/auth';
 
 const devDefaults =
   process.env.NODE_ENV === 'development'
@@ -16,7 +16,12 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const hasToken = useMemo(() => Boolean(getToken()), []);
+  const [hasToken, setHasToken] = useState(false);
+  useEffect(() => {
+    const sync = () => setHasToken(Boolean(getToken()));
+    sync();
+    return subscribeAuthChanged(sync);
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

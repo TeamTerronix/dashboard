@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
 import { AlertWebSocket } from '@/lib/websocket';
-import { getToken } from '@/lib/auth';
+import { getToken, subscribeAuthChanged } from '@/lib/auth';
 
 export default function AuthShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -14,10 +14,14 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   const [hasToken, setHasToken] = useState(false);
 
   useEffect(() => {
-    const tok = getToken();
-    setHasToken(Boolean(tok));
-    setReady(true);
-  }, []);
+    const sync = () => {
+      setHasToken(Boolean(getToken()));
+      setReady(true);
+    };
+    sync();
+    const unsub = subscribeAuthChanged(sync);
+    return unsub;
+  }, [pathname]);
 
   useEffect(() => {
     if (!ready) return;
