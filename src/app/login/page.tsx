@@ -4,10 +4,15 @@ import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { loginWithPassword, setToken, clearToken, getToken } from '@/lib/auth';
 
+const devDefaults =
+  process.env.NODE_ENV === 'development'
+    ? { email: 'bar-reef@sliot.local', password: 'user123' }
+    : { email: '', password: '' };
+
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('bar-reef@sliot.local');
-  const [password, setPassword] = useState('user123');
+  const [email, setEmail] = useState(devDefaults.email);
+  const [password, setPassword] = useState(devDefaults.password);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
