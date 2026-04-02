@@ -31,10 +31,14 @@ interface AlertMessage {
 
 function AlertWebSocketInner({ token }: { token: string }) {
   const url = useMemo(() => getBleachingAlertsWebSocketUrl(token), [token]);
+  if (!url) return null;
+  return <AlertWebSocketConnected url={url} />;
+}
 
+function AlertWebSocketConnected({ url }: { url: string }) {
   const { lastJsonMessage } = useWebSocket(url, {
-    shouldReconnect: () => url != null,
-    reconnectAttempts: url ? 20 : 0,
+    shouldReconnect: () => true,
+    reconnectAttempts: 20,
     reconnectInterval: 4000,
   });
 
