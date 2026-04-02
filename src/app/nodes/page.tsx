@@ -3,14 +3,15 @@
 import { Battery, Wifi, WifiOff, Clock, Signal } from 'lucide-react';
 import { timeAgo } from '@/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
-import { getLatestReadings } from '@/lib/api';
-import { monitoringAreas } from '@/lib/areas';
-import { nearestAreaId } from '@/lib/geo';
+import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
+import { resolveNodeAreaId } from '@/lib/geo';
+import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
 
 export default function NodesPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
 
+  const { areas, loading: areasLoading } = useMonitoringAreas();
   const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
 
   useEffect(() => {
@@ -20,14 +21,7 @@ export default function NodesPage() {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
         const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
-        const mapped: TemperatureReading[] = rows.map((r) => ({
-          time: r.time,
-          nodeId: String(r.sensor_uid),
-          temperature: Number(r.temperature),
-          dhw: 0,
-          latitude: Number(r.latitude),
-          longitude: Number(r.longitude),
-        }));
+        const mapped: TemperatureReading[] = rows.map((r) => mapLatestReadingRow(r));
         if (!cancelled) setLatestReadings(mapped);
       } catch {
         if (!cancelled) setLatestReadings([]);
@@ -40,7 +34,7 @@ export default function NodesPage() {
 
   const sensorNodes: SensorNode[] = useMemo(() => {
     return latestReadings.map((r) => {
-      const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const areaId = resolveNodeAreaId(r, areas);
       const t = Date.parse(r.time);
       const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
       const status: SensorNode['status'] = ageMins < 120 ? 'online' : ageMins < 2880 ? 'delayed' : 'offline';
@@ -57,11 +51,22 @@ export default function NodesPage() {
         totalReadings: 0,
       };
     });
-  }, [latestReadings]);
+  }, [latestReadings, areas]);
 
   const onlineCount = sensorNodes.filter((n) => n.status === 'online').length;
   const delayedCount = sensorNodes.filter((n) => n.status === 'delayed').length;
   const offlineCount = sensorNodes.filter((n) => n.status === 'offline').length;
+
+  if (areasLoading) {
+    return (
+      <div
+        className="flex items-center justify-center min-h-[40vh] rounded-xl border text-sm"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+      >
+        Loading your networks…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -96,7 +101,7 @@ export default function NodesPage() {
           <thead>
             <tr style={{ color: 'var(--text-secondary)' }}>
               <th className="text-left py-2 px-2">Node</th>
-              <th className="text-left py-2 px-2">Area</th>
+              <th className="text-left py-2 px-2">Network</th>
               <th className="text-left py-2 px-2">Status</th>
               <th className="text-right py-2 px-2">Depth</th>
               <th className="text-right py-2 px-2">Battery</th>
@@ -130,7 +135,7 @@ export default function NodesPage() {
                 >
                   <td className="py-2.5 px-2 font-mono font-bold">{node.id}</td>
                   <td className="py-2.5 px-2" style={{ color: 'var(--text-secondary)' }}>
-                    {monitoringAreas.find((a) => a.id === node.areaId)?.name ?? '—'}
+                    {areas.find((a) => a.id === node.areaId)?.name ?? node.areaId}
                   </td>
                   <td className="py-2.5 px-2">
                     <span

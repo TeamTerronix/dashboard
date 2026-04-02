@@ -7,14 +7,15 @@ import {
 } from 'recharts';
 import { tempToColor } from '@/lib/utils';
 import type { PredictionPoint, ForecastData } from '@/lib/types';
-import { getDHW, getLatestReadings, getPredictions, getSST } from '@/lib/api';
-import { monitoringAreas } from '@/lib/areas';
+import { getDHW, getLatestReadings, getPredictions, getSST, mapLatestReadingRow } from '@/lib/api';
 import { nearestAreaId } from '@/lib/geo';
+import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 
 type ModelType = 'PINN' | 'LSTM' | 'Ensemble';
 type Horizon = '72h' | '7d' | '30d';
 
 export default function PredictionsPage() {
+  const { areas, loading: areasLoading } = useMonitoringAreas();
   const [model, setModel] = useState<ModelType>('PINN');
   const [horizon, setHorizon] = useState<Horizon>('7d');
   const [confidence, setConfidence] = useState<90 | 95>(95);
@@ -144,42 +145,51 @@ export default function PredictionsPage() {
         });
         if (!cancelled) setDhwData(weeks);
 
-        // Zone risks from predictions + latest coords
+        // Zone risks from predictions + latest coords (scoped to your networks)
         const anyPreds = preds as any;
         const predRows = (Array.isArray(anyPreds?.value) ? anyPreds.value : anyPreds) as any[];
-        const sensorArea = new Map<number, string>();
-        for (const r of latestRows) {
-          const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude);
-          if (areaId) sensorArea.set(Number(r.sensor_id), areaId);
+        if (areasLoading || areas.length === 0) {
+          if (!cancelled) setZoneRisks([]);
+        } else {
+          const sensorArea = new Map<number, string>();
+          for (const r of latestRows) {
+            const row = mapLatestReadingRow(r as Record<string, unknown>);
+            let areaId: string | null = row.networkGroupId ?? null;
+            if (!areaId || !areas.some((a) => a.id === areaId)) {
+              areaId = nearestAreaId(areas, row.latitude, row.longitude);
+            }
+            if (areaId) sensorArea.set(Number(r.sensor_id), areaId);
+          }
+          const byArea: Record<string, { sum: number; n: number }> = {};
+          for (const a of areas) byArea[a.id] = { sum: 0, n: 0 };
+          for (const p of predRows) {
+            const areaId = sensorArea.get(Number(p.sensor_id));
+            if (!areaId) continue;
+            const rs = p.risk_score;
+            if (rs == null) continue;
+            if (!byArea[areaId]) continue;
+            byArea[areaId].sum += Number(rs);
+            byArea[areaId].n += 1;
+          }
+          const zr = areas.map((a) => {
+            const agg = byArea[a.id];
+            const avg = agg?.n ? agg.sum / agg.n : 0;
+            return { zone: a.name, risk: Math.round(avg * 100) };
+          });
+          if (!cancelled) setZoneRisks(zr);
         }
-        const byArea: Record<string, { sum: number; n: number }> = {};
-        for (const a of monitoringAreas) byArea[a.id] = { sum: 0, n: 0 };
-        for (const p of predRows) {
-          const areaId = sensorArea.get(Number(p.sensor_id));
-          if (!areaId) continue;
-          const rs = p.risk_score;
-          if (rs == null) continue;
-          byArea[areaId].sum += Number(rs);
-          byArea[areaId].n += 1;
-        }
-        const zr = monitoringAreas.map((a) => {
-          const agg = byArea[a.id];
-          const avg = agg.n ? agg.sum / agg.n : 0;
-          return { zone: a.name, risk: Math.round(avg * 100) };
-        });
-        if (!cancelled) setZoneRisks(zr);
       } catch {
         if (!cancelled) {
           setPredGrid([]);
           setDhwData([]);
-          setZoneRisks(monitoringAreas.map((a) => ({ zone: a.name, risk: 0 })));
+          setZoneRisks(areas.map((a) => ({ zone: a.name, risk: 0 })));
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [areas, areasLoading]);
 
   // Map dims
   const MW = 350, MH = 220;

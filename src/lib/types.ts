@@ -29,6 +29,8 @@ export interface TemperatureReading {
   dhw: number;
   latitude: number;
   longitude: number;
+  /** Backend sensor network; preferred for grouping vs geographic heuristic */
+  networkGroupId?: string;
 }
 
 export interface PredictionPoint {

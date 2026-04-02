@@ -7,9 +7,9 @@ import AlertFeed from '@/components/dashboard/AlertFeed';
 import MLQuickInsight from '@/components/dashboard/MLQuickInsight';
 import { ChevronDown, MapPin, Thermometer, Activity, Wifi, WifiOff, Clock } from 'lucide-react';
 import Link from 'next/link';
-import { monitoringAreas } from '@/lib/areas';
-import { getLatestReadings } from '@/lib/api';
-import { nearestAreaId } from '@/lib/geo';
+import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
+import { resolveNodeAreaId } from '@/lib/geo';
+import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { DashboardKPI, SensorNode, TemperatureReading } from '@/lib/types';
 import { useDashboardStore } from '@/lib/store';
 
@@ -17,7 +17,8 @@ export default function DashboardPage() {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
-  const currentArea = monitoringAreas.find((a) => a.id === selectedArea);
+  const { areas, loading: areasLoading } = useMonitoringAreas();
+  const currentArea = areas.find((a) => a.id === selectedArea);
   const { setAvailableNodes } = useDashboardStore();
 
   const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
@@ -29,14 +30,7 @@ export default function DashboardPage() {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
         const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
-        const mapped: TemperatureReading[] = rows.map((r) => ({
-          time: r.time,
-          nodeId: String(r.sensor_uid),
-          temperature: Number(r.temperature),
-          dhw: 0,
-          latitude: Number(r.latitude),
-          longitude: Number(r.longitude),
-        }));
+        const mapped: TemperatureReading[] = rows.map((r) => mapLatestReadingRow(r));
         if (!cancelled) {
           setLatestReadings(mapped);
           setAvailableNodes(mapped.map((m) => m.nodeId));
@@ -52,7 +46,7 @@ export default function DashboardPage() {
 
   const sensorNodes: SensorNode[] = useMemo(() => {
     return latestReadings.map((r) => {
-      const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const areaId = resolveNodeAreaId(r, areas);
       const t = Date.parse(r.time);
       const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
       const status: SensorNode['status'] = ageMins < 120 ? 'online' : ageMins < 720 ? 'delayed' : 'offline';
@@ -69,7 +63,7 @@ export default function DashboardPage() {
         totalReadings: 0,
       };
     });
-  }, [latestReadings]);
+  }, [latestReadings, areas]);
 
   const areaInfo = useMemo(() => {
     const nodes = selectedArea ? sensorNodes.filter((n) => n.areaId === selectedArea) : sensorNodes;
@@ -94,7 +88,7 @@ export default function DashboardPage() {
 
   // Per-area cards data
   const areaCards = useMemo(() => {
-    return monitoringAreas.map((area) => {
+    return areas.map((area) => {
       const info = (() => {
         const nodes = sensorNodes.filter((n) => n.areaId === area.id);
         const online = nodes.filter((n) => n.status === 'online');
@@ -114,7 +108,7 @@ export default function DashboardPage() {
       })();
       return { area, info };
     });
-  }, [latestReadings, sensorNodes]);
+  }, [latestReadings, sensorNodes, areas]);
 
   const dashboardKPIs: DashboardKPI[] = useMemo(() => {
     const temps = latestReadings.map((r) => r.temperature).filter((t) => !Number.isNaN(t));
@@ -126,10 +120,21 @@ export default function DashboardPage() {
       { label: 'Current Mean T°', value: mean.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: mean >= 30 ? 'danger' : mean >= 28 ? 'warning' : 'normal' },
       { label: 'Max Temp', value: max.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: max >= 31 ? 'danger' : max >= 30 ? 'warning' : 'normal' },
       { label: 'Active Nodes', value: `${online}/${total}`, unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: total && online / total < 0.6 ? 'warning' : 'normal' },
-      { label: 'Areas', value: String(monitoringAreas.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
+      { label: 'Networks', value: String(areas.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
       { label: 'Latest Readings', value: String(latestReadings.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
     ];
-  }, [latestReadings, sensorNodes]);
+  }, [latestReadings, sensorNodes, areas.length]);
+
+  if (areasLoading) {
+    return (
+      <div
+        className="flex items-center justify-center min-h-[40vh] rounded-xl border text-sm"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+      >
+        Loading your networks…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -147,7 +152,7 @@ export default function DashboardPage() {
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {currentArea
                 ? `${currentArea.description} — ${areaInfo.online.length}/${areaInfo.nodes.length} nodes online`
-                : `Sri Lanka — ${monitoringAreas.length} monitoring areas, ${sensorNodes.length} total nodes`}
+                : `${areas.length} network${areas.length === 1 ? '' : 's'}, ${sensorNodes.length} node${sensorNodes.length === 1 ? '' : 's'}`}
             </p>
           </div>
         </div>
@@ -189,7 +194,7 @@ export default function DashboardPage() {
                   {sensorNodes.length} nodes
                 </span>
               </button>
-              {monitoringAreas.map((a) => {
+              {areas.map((a) => {
                 const nodes = sensorNodes.filter((n) => n.areaId === a.id);
                 const online = nodes.filter((n) => n.status === 'online');
                 const temps = latestReadings

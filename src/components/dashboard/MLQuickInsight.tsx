@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { getLatestReadings, getPredictions } from '@/lib/api';
-import { monitoringAreas } from '@/lib/areas';
+import { getLatestReadings, getPredictions, mapLatestReadingRow } from '@/lib/api';
 import { nearestAreaId } from '@/lib/geo';
+import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 
 export default function MLQuickInsight() {
+  const { areas, loading: areasLoading } = useMonitoringAreas();
   const [loading, setLoading] = useState(true);
   const [zoneRisks, setZoneRisks] = useState<{ zone: string; risk: number }[]>([]);
 
@@ -20,18 +21,30 @@ export default function MLQuickInsight() {
           getPredictions(0, 1000),
         ]);
 
+        if (areasLoading || areas.length === 0) {
+          if (!cancelled) {
+            setZoneRisks([]);
+            setLoading(false);
+          }
+          return;
+        }
+
         // Map sensor_id -> area
         const sensorArea = new Map<number, string>();
         const anyLatest = latest as any;
         const latestRows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
         for (const r of latestRows) {
-          const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude);
+          const row = mapLatestReadingRow(r as Record<string, unknown>);
+          let areaId: string | null = row.networkGroupId ?? null;
+          if (!areaId || !areas.some((a) => a.id === areaId)) {
+            areaId = nearestAreaId(areas, row.latitude, row.longitude);
+          }
           if (areaId) sensorArea.set(Number(r.sensor_id), areaId);
         }
 
         // Avg risk_score per area (first ~72h window by earliest timestamps)
         const byArea: Record<string, { sum: number; n: number }> = {};
-        for (const a of monitoringAreas) byArea[a.id] = { sum: 0, n: 0 };
+        for (const a of areas) byArea[a.id] = { sum: 0, n: 0 };
 
         const anyPreds = preds as any;
         const predRows = (Array.isArray(anyPreds?.value) ? anyPreds.value : anyPreds) as any[];
@@ -41,11 +54,12 @@ export default function MLQuickInsight() {
           if (!areaId) continue;
           const rs = p.risk_score;
           if (rs == null || Number.isNaN(Number(rs))) continue;
+          if (!byArea[areaId]) continue;
           byArea[areaId].sum += Number(rs);
           byArea[areaId].n += 1;
         }
 
-        const next = monitoringAreas.map((a) => {
+        const next = areas.map((a) => {
           const agg = byArea[a.id];
           const avg = agg.n ? agg.sum / agg.n : 0;
           return { zone: a.name, risk: Math.round(avg * 100) };
@@ -57,7 +71,7 @@ export default function MLQuickInsight() {
         }
       } catch {
         if (!cancelled) {
-          setZoneRisks(monitoringAreas.map((a) => ({ zone: a.name, risk: 0 })));
+          setZoneRisks(areas.map((a) => ({ zone: a.name, risk: 0 })));
           setLoading(false);
         }
       }
@@ -65,7 +79,7 @@ export default function MLQuickInsight() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [areas, areasLoading]);
 
   const headline = useMemo(() => {
     const top = [...zoneRisks].sort((a, b) => b.risk - a.risk)[0];

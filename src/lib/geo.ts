@@ -1,5 +1,17 @@
 import type { MonitoringArea } from './types';
 
+/** Prefer backend network_group_id; otherwise nearest area among the allowed list. */
+export function resolveNodeAreaId(
+  reading: { networkGroupId?: string; latitude: number; longitude: number },
+  areas: MonitoringArea[],
+): string {
+  if (reading.networkGroupId) {
+    return reading.networkGroupId;
+  }
+  if (areas.length === 0) return 'unknown';
+  return nearestAreaId(areas, reading.latitude, reading.longitude) ?? areas[0].id;
+}
+
 export function nearestAreaId(
   areas: MonitoringArea[],
   lat: number | null | undefined,

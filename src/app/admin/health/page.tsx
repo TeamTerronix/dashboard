@@ -14,9 +14,9 @@
 
 import { useMemo, useState } from 'react';
 import { ShieldCheck, Wifi, WifiOff, Clock, Battery, Search, RefreshCw } from 'lucide-react';
-import { monitoringAreas } from '@/lib/areas';
-import { nearestAreaId } from '@/lib/geo';
-import { getLatestReadings } from '@/lib/api';
+import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
+import { resolveNodeAreaId } from '@/lib/geo';
+import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
 import { useEffect } from 'react';
 
@@ -54,6 +54,7 @@ function statusBadge(s: 'online' | 'delayed' | 'offline') {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function AdminHealthPage() {
+  const { areas, loading: areasLoading } = useMonitoringAreas();
   const [search, setSearch] = useState('');
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -66,14 +67,7 @@ export default function AdminHealthPage() {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
         const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
-        const mapped: TemperatureReading[] = rows.map((r) => ({
-          time: r.time,
-          nodeId: String(r.sensor_uid),
-          temperature: Number(r.temperature),
-          dhw: 0,
-          latitude: Number(r.latitude),
-          longitude: Number(r.longitude),
-        }));
+        const mapped: TemperatureReading[] = rows.map((r) => mapLatestReadingRow(r));
         if (!cancelled) setLatestReadings(mapped);
       } catch {
         if (!cancelled) setLatestReadings([]);
@@ -86,7 +80,7 @@ export default function AdminHealthPage() {
 
   const sensorNodes: SensorNode[] = useMemo(() => {
     return latestReadings.map((r) => {
-      const areaId = nearestAreaId(monitoringAreas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const areaId = resolveNodeAreaId(r, areas);
       return {
         id: r.nodeId,
         name: r.nodeId,
@@ -100,7 +94,7 @@ export default function AdminHealthPage() {
         totalReadings: 0,
       };
     });
-  }, [latestReadings]);
+  }, [latestReadings, areas]);
 
   // Reference "now" = latest lastSync across all nodes
   const latestKnown = useMemo(() => {
@@ -112,7 +106,7 @@ export default function AdminHealthPage() {
     return sensorNodes
       .map((n) => ({
         ...n,
-        area: monitoringAreas.find((a) => a.id === n.areaId)?.name ?? n.areaId,
+        area: areas.find((a) => a.id === n.areaId)?.name ?? n.areaId,
         connectivity: deriveStatus(n.lastSync, latestKnown),
       }))
       .filter((n) => {
@@ -128,6 +122,17 @@ export default function AdminHealthPage() {
   const delayed = rows.filter((n) => n.connectivity === 'delayed').length;
   const offline = rows.filter((n) => n.connectivity === 'offline').length;
 
+  if (areasLoading) {
+    return (
+      <div
+        className="flex items-center justify-center min-h-[40vh] rounded-xl border text-sm"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+      >
+        Loading networks…
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -142,7 +147,7 @@ export default function AdminHealthPage() {
               Admin Health Portal
             </h2>
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Real-time device health — {sensorNodes.length} registered sensors across {monitoringAreas.length} areas
+              Real-time device health — {sensorNodes.length} registered sensors across {areas.length} networks
             </p>
           </div>
         </div>
@@ -197,7 +202,7 @@ export default function AdminHealthPage() {
           }}
         >
           <option value="all">All Areas</option>
-          {monitoringAreas.map((a) => (
+          {areas.map((a) => (
             <option key={a.id} value={a.id}>{a.name}</option>
           ))}
         </select>

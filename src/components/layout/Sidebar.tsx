@@ -2,7 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useDashboardStore } from '@/lib/store';
+import { getMe } from '@/lib/api';
 import {
   LayoutDashboard,
   Map,
@@ -16,6 +18,7 @@ import {
   ChevronRight,
   Waves,
   ShieldCheck,
+  UserCog,
 } from 'lucide-react';
 
 const navItems = [
@@ -30,12 +33,29 @@ const navItems = [
 ];
 
 const adminItems = [
+  { href: '/admin/provisioning', label: 'Provisioning', icon: UserCog },
   { href: '/admin/health', label: 'Device Health', icon: ShieldCheck },
 ];
 
 export default function Sidebar() {
   const { sidebarCollapsed, toggleSidebar } = useDashboardStore();
   const pathname = usePathname();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await getMe();
+        if (!cancelled) setIsAdmin(me.role === 'admin');
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <aside
@@ -81,34 +101,41 @@ export default function Sidebar() {
           );
         })}
 
-        {/* Admin section */}
-        {!sidebarCollapsed && (
-          <p className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-secondary)' }}>
-            Admin
-          </p>
+        {/* Admin section — only for admin role */}
+        {isAdmin && (
+          <>
+            {!sidebarCollapsed && (
+              <p
+                className="px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-widest"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Admin
+              </p>
+            )}
+            {sidebarCollapsed && <div className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />}
+            {adminItems.map((item) => {
+              const isActive = pathname === item.href;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                    isActive ? 'text-white' : 'hover:bg-[var(--bg-elevated)]'
+                  }`}
+                  style={{
+                    color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                    background: isActive ? 'var(--bg-elevated)' : 'transparent',
+                  }}
+                  title={sidebarCollapsed ? item.label : undefined}
+                >
+                  <Icon className="w-5 h-5 shrink-0" />
+                  {!sidebarCollapsed && <span>{item.label}</span>}
+                </Link>
+              );
+            })}
+          </>
         )}
-        {sidebarCollapsed && <div className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />}
-        {adminItems.map((item) => {
-          const isActive = pathname === item.href;
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                isActive ? 'text-white' : 'hover:bg-[var(--bg-elevated)]'
-              }`}
-              style={{
-                color: isActive ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                background: isActive ? 'var(--bg-elevated)' : 'transparent',
-              }}
-              title={sidebarCollapsed ? item.label : undefined}
-            >
-              <Icon className="w-5 h-5 shrink-0" />
-              {!sidebarCollapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
       </nav>
 
       {/* Collapse Toggle */}

@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { MapPin, Thermometer, ChevronDown, Layers, Box } from 'lucide-react';
-import { monitoringAreas } from '@/lib/areas';
-import { getLatestReadings } from '@/lib/api';
-import { nearestAreaId } from '@/lib/geo';
+import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
+import { resolveNodeAreaId } from '@/lib/geo';
+import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
 
 const mapLoader = (
@@ -34,7 +34,7 @@ export default function MapPage() {
   const [areaDropdownOpen, setAreaDropdownOpen] = useState(false);
   const [mapMode, setMapMode] = useState<'2d' | '3d'>('2d');
 
-  const areas = monitoringAreas;
+  const { areas, loading: areasLoading } = useMonitoringAreas();
   const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
 
   useEffect(() => {
@@ -44,14 +44,7 @@ export default function MapPage() {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
         const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
-        const mapped: TemperatureReading[] = rows.map((r) => ({
-          time: r.time,
-          nodeId: String(r.sensor_uid),
-          temperature: Number(r.temperature),
-          dhw: 0,
-          latitude: Number(r.latitude),
-          longitude: Number(r.longitude),
-        }));
+        const mapped: TemperatureReading[] = rows.map((r) => mapLatestReadingRow(r));
         if (!cancelled) setLatestReadings(mapped);
       } catch {
         if (!cancelled) setLatestReadings([]);
@@ -65,7 +58,7 @@ export default function MapPage() {
   const nodes: SensorNode[] = useMemo(() => {
     // Build nodes from latest readings. Some UI fields are derived (no mock).
     return latestReadings.map((r) => {
-      const areaId = nearestAreaId(areas, r.latitude, r.longitude) ?? 'hikkaduwa';
+      const areaId = resolveNodeAreaId(r, areas);
       const lastSync = r.time;
       const t = Date.parse(lastSync);
       const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
@@ -84,6 +77,17 @@ export default function MapPage() {
       };
     });
   }, [areas, latestReadings]);
+
+  if (areasLoading) {
+    return (
+      <div
+        className="flex items-center justify-center min-h-[40vh] rounded-xl border text-sm"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
+      >
+        Loading your networks…
+      </div>
+    );
+  }
 
   const currentArea = areas.find((a) => a.id === selectedArea);
   const areaNodes = selectedArea ? nodes.filter((n) => n.areaId === selectedArea) : nodes;
@@ -105,7 +109,7 @@ export default function MapPage() {
             <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
               {currentArea
                 ? `${currentArea.description} — PINN model temperature heatmap overlay`
-                : `Sri Lanka — ${areas.length} monitoring areas, ${nodes.length} total nodes`}
+                : `${areas.length} network${areas.length === 1 ? '' : 's'}, ${nodes.length} node${nodes.length === 1 ? '' : 's'}`}
             </p>
           </div>
         </div>
@@ -369,7 +373,7 @@ export default function MapPage() {
             <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
               {currentArea
                 ? `Real-world sensor locations at ${currentArea.name}, ${currentArea.description}. The heatmap overlay is generated via IDW interpolation from active sensor readings. The dashed boundary marks the convex hull monitoring area.`
-                : `Overview of ${areas.length} coral reef monitoring areas across Sri Lanka. Click an area marker or select from the dropdown to view individual sensor nodes and heatmap overlays.`}
+                : `Your visible networks (${areas.length}). Select a network or use the map to explore sensor nodes and heatmap overlays.`}
             </p>
           </div>
         </div>
