@@ -13,11 +13,11 @@
  * Mount <AlertWebSocket /> once in layout.tsx — it renders nothing to the DOM.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useWebSocket from 'react-use-websocket';
 import { toast } from 'sonner';
 
-import { getWebSocketBase } from './api-base';
+import { getBleachingAlertsWebSocketUrl } from './api-base';
 
 interface AlertMessage {
   type: string;
@@ -30,11 +30,11 @@ interface AlertMessage {
 }
 
 function AlertWebSocketInner({ token }: { token: string }) {
-  const url = `${getWebSocketBase()}/ws/alerts?token=${encodeURIComponent(token)}`;
+  const url = useMemo(() => getBleachingAlertsWebSocketUrl(token), [token]);
 
   const { lastJsonMessage } = useWebSocket(url, {
-    shouldReconnect: () => true,
-    reconnectAttempts: 20,
+    shouldReconnect: () => url != null,
+    reconnectAttempts: url ? 20 : 0,
     reconnectInterval: 4000,
   });
 

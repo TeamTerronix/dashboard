@@ -5,8 +5,11 @@
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-/** WebSocket base: full http(s) URL or relative path (same host as the Next app). */
-export function getWebSocketBase(): string {
+/**
+ * Resolve WebSocket origin (no path) for the API, or null if the browser cannot
+ * safely open a WebSocket (e.g. HTTPS page + http:// API = mixed content; ws:// is blocked).
+ */
+function getWebSocketOrigin(): string | null {
   const explicit = process.env.NEXT_PUBLIC_WS_URL?.trim();
   if (explicit) return explicit.replace(/\/$/, '');
 
@@ -16,5 +19,21 @@ export function getWebSocketBase(): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${window.location.host}${base}`;
   }
-  return base.replace(/^http/, 'ws');
+  if (base.startsWith('https://')) {
+    return base.replace(/^https/, 'wss');
+  }
+  if (base.startsWith('http://')) {
+    if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+      return null;
+    }
+    return base.replace(/^http/, 'ws');
+  }
+  return null;
+}
+
+/** Full URL for bleaching WebSocket, or null to skip connecting (avoids 404 / mixed-content spam). */
+export function getBleachingAlertsWebSocketUrl(token: string): string | null {
+  const origin = getWebSocketOrigin();
+  if (!origin) return null;
+  return `${origin}/ws/alerts?token=${encodeURIComponent(token)}`;
 }
