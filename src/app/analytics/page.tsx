@@ -358,7 +358,11 @@ export default function AnalyticsPage() {
                     fontSize: 11,
                     color: 'var(--text-primary)',
                   }}
-                  formatter={(value: number) => [`${value}°C`, 'Temperature']}
+                  formatter={(value) => {
+                    const v = typeof value === 'number' ? value : Number(value);
+                    const text = Number.isFinite(v) ? `${v}°C` : '—';
+                    return [text, 'Temperature'];
+                  }}
                 />
                 <Line
                   type="monotone"
