@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, BarChart, Bar, ScatterChart, Scatter, ZAxis,
+  LineChart, Line,
 } from 'recharts';
 import { useDashboardStore } from '@/lib/store';
 import { getSST } from '@/lib/api';
@@ -21,6 +22,7 @@ export default function AnalyticsPage() {
   const [mounted, setMounted] = useState(false);
   const [temperatureReadings, setTemperatureReadings] = useState<TemperatureReading[]>([]);
   const [dataRefreshTick, setDataRefreshTick] = useState(0);
+  const [seriesNodeId, setSeriesNodeId] = useState<string>('');
 
   useEffect(() => {
     setMounted(true);
@@ -103,6 +105,55 @@ export default function AnalyticsPage() {
       };
     });
   }, [selectedNodes, temperatureReadings]);
+
+  const nodeOptionsForSeries = useMemo(() => {
+    const ids = new Set<string>();
+    for (const nid of selectedNodes) ids.add(nid);
+    if (ids.size === 0) {
+      for (const r of temperatureReadings) ids.add(r.nodeId);
+    }
+    return Array.from(ids).sort();
+  }, [selectedNodes, temperatureReadings]);
+
+  useEffect(() => {
+    if (!nodeOptionsForSeries.length) {
+      if (seriesNodeId) setSeriesNodeId('');
+      return;
+    }
+    if (!seriesNodeId || !nodeOptionsForSeries.includes(seriesNodeId)) {
+      setSeriesNodeId(nodeOptionsForSeries[0]);
+    }
+  }, [nodeOptionsForSeries, seriesNodeId]);
+
+  const nodeTimeSeries = useMemo(() => {
+    if (!seriesNodeId) return [];
+    const points = temperatureReadings
+      .filter((r) => r.nodeId === seriesNodeId)
+      .map((r) => {
+        const t = Date.parse(r.time);
+        return {
+          t: Number.isFinite(t) ? t : 0,
+          time: r.time,
+          temperature: r.temperature,
+        };
+      })
+      .filter((p) => p.t > 0)
+      .sort((a, b) => a.t - b.t);
+
+    return points.map((p) => {
+      const d = new Date(p.time);
+      return {
+        label: d.toLocaleString(undefined, {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        iso: p.time,
+        temperature: Number(p.temperature.toFixed(2)),
+      };
+    });
+  }, [seriesNodeId, temperatureReadings]);
 
   // Correlation scatter data (BR-01 vs BR-07 for example)
   const scatterData = useMemo(() => {
@@ -241,6 +292,95 @@ export default function AnalyticsPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* Temperature vs time — one node at a time */}
+      <div
+        className="rounded-xl border p-4"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Temperature over time
+          </h3>
+          <div className="flex items-center gap-2">
+            <label className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              Node
+            </label>
+            <select
+              value={seriesNodeId}
+              onChange={(e) => setSeriesNodeId(e.target.value)}
+              className="text-xs rounded-lg border px-2 py-1.5 min-w-[140px] outline-none cursor-pointer"
+              style={{
+                background: 'var(--bg-elevated)',
+                borderColor: 'var(--border)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              {nodeOptionsForSeries.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <p className="text-[11px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+          Shows all samples returned for this node (same data as charts above). Select nodes from the dashboard
+          node picker to scope which IDs appear here.
+        </p>
+        <div className="h-72">
+          {mounted && nodeTimeSeries.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={nodeTimeSeries} margin={{ top: 8, right: 16, left: 0, bottom: 48 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--grid-line)" />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fill: 'var(--text-secondary)', fontSize: 9 }}
+                  stroke="var(--grid-line)"
+                  interval="preserveStartEnd"
+                  angle={-35}
+                  textAnchor="end"
+                  height={56}
+                />
+                <YAxis
+                  domain={['dataMin - 0.5', 'dataMax + 0.5']}
+                  tick={{ fill: 'var(--text-secondary)', fontSize: 10 }}
+                  stroke="var(--grid-line)"
+                  tickFormatter={(v) => `${v}°`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    fontSize: 11,
+                    color: 'var(--text-primary)',
+                  }}
+                  formatter={(value: number) => [`${value}°C`, 'Temperature']}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="temperature"
+                  name="Temperature"
+                  stroke="var(--accent-cyan)"
+                  strokeWidth={2}
+                  dot={{ r: 2, fill: 'var(--accent-cyan)' }}
+                  activeDot={{ r: 4 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div
+              className="h-full flex items-center justify-center rounded-lg text-xs"
+              style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+            >
+              {nodeOptionsForSeries.length === 0
+                ? 'No nodes in scope — select nodes on the dashboard or wait for data.'
+                : 'No readings for this node yet.'}
+            </div>
+          )}
         </div>
       </div>
     </div>
