@@ -21,6 +21,15 @@ cd dashboard
 npm install
 ```
 
+## API URL (dashboard + ESP32)
+
+Create `.env.local` from `.env.example` and set **`NEXT_PUBLIC_API_URL`** to your FastAPI base URL **without a trailing slash** (same server that serves `POST /data`).
+
+- Local backend: `http://127.0.0.1:8000`
+- Production: your public `https://…` API origin
+
+The dashboard calls `NEXT_PUBLIC_API_URL` for auth and data. ESP32 firmware **`POST`**s to **`{NEXT_PUBLIC_API_URL}/data`** with JSON `{"sensor_uid":"…","temperature":…}` only (timestamp is filled by the server). See `reciever_single_temp.ino` or `reciever_single_temp_wifi/` (same sketch).
+
 ## Run In Development
 
 ```bash
