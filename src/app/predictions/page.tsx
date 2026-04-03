@@ -10,6 +10,7 @@ import type { PredictionPoint, ForecastData } from '@/lib/types';
 import { getDHW, getLatestReadings, getPredictions, getSST, mapLatestReadingRow } from '@/lib/api';
 import { nearestAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 type ModelType = 'PINN' | 'LSTM' | 'Ensemble';
 type Horizon = '72h' | '7d' | '30d';
@@ -26,6 +27,11 @@ export default function PredictionsPage() {
   const [predGrid, setPredGrid] = useState<PredictionPoint[]>([]);
   const [dhwData, setDhwData] = useState<{ week: string; dhw: number }[]>([]);
   const [zoneRisks, setZoneRisks] = useState<{ zone: string; risk: number }[]>([]);
+  const [dataRefreshTick, setDataRefreshTick] = useState(0);
+
+  useEffect(() => {
+    return subscribeDashboardDataRefresh(() => setDataRefreshTick((t) => t + 1));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,7 +108,7 @@ export default function PredictionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [horizonDays]);
+  }, [horizonDays, confidence, dataRefreshTick]);
 
   useEffect(() => {
     setMounted(true);
@@ -189,7 +195,7 @@ export default function PredictionsPage() {
     return () => {
       cancelled = true;
     };
-  }, [areas, areasLoading]);
+  }, [areas, areasLoading, dataRefreshTick]);
 
   // Map dims
   const MW = 350, MH = 220;

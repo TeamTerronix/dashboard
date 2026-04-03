@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Expand } from 'lucide-react';
 import { getLatestReadings } from '@/lib/api';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 export default function MiniHeatmap() {
   const [points, setPoints] = useState<{ lat: number; lon: number; temp: number }[]>([]);
@@ -12,7 +13,7 @@ export default function MiniHeatmap() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
@@ -26,9 +27,12 @@ export default function MiniHeatmap() {
       } finally {
         if (!cancelled) setMounted(true);
       }
-    })();
+    };
+    load();
+    const unsub = subscribeDashboardDataRefresh(load);
     return () => {
       cancelled = true;
+      unsub();
     };
   }, []);
 

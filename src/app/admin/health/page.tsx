@@ -17,6 +17,7 @@ import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
 import { useEffect } from 'react';
 import { deriveNodeStatusFromLastSyncIso, nodeStatusThresholdHelp } from '@/lib/node-status';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 function batteryColor(pct: number): string {
   if (pct > 50) return 'var(--accent-teal)';
@@ -44,7 +45,7 @@ export default function AdminHealthPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
@@ -54,9 +55,12 @@ export default function AdminHealthPage() {
       } catch {
         if (!cancelled) setLatestReadings([]);
       }
-    })();
+    };
+    load();
+    const unsub = subscribeDashboardDataRefresh(load);
     return () => {
       cancelled = true;
+      unsub();
     };
   }, []);
 

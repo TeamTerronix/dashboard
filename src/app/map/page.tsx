@@ -8,6 +8,7 @@ import { resolveNodeAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
 import { deriveNodeStatusFromAgeMinutes } from '@/lib/node-status';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 const mapLoader = (
   <div
@@ -40,7 +41,7 @@ export default function MapPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
@@ -50,9 +51,12 @@ export default function MapPage() {
       } catch {
         if (!cancelled) setLatestReadings([]);
       }
-    })();
+    };
+    load();
+    const unsub = subscribeDashboardDataRefresh(load);
     return () => {
       cancelled = true;
+      unsub();
     };
   }, []);
 

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { getLatestReadings, getPredictions, mapLatestReadingRow } from '@/lib/api';
 import { nearestAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 export default function MLQuickInsight() {
   const { areas, loading: areasLoading } = useMonitoringAreas();
@@ -14,7 +15,7 @@ export default function MLQuickInsight() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const [latest, preds] = await Promise.all([
           getLatestReadings(),
@@ -75,9 +76,12 @@ export default function MLQuickInsight() {
           setLoading(false);
         }
       }
-    })();
+    };
+    load();
+    const unsub = subscribeDashboardDataRefresh(load);
     return () => {
       cancelled = true;
+      unsub();
     };
   }, [areas, areasLoading]);
 

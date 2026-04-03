@@ -7,7 +7,8 @@
  *
  * - Reads the JWT from localStorage after mount (avoids SSR mismatch)
  * - Connects to /ws/alerts?token=<jwt>
- * - Shows a sonner Toast with a "View on Map" CTA when temp > 31°C
+ * - On `reading_new` or `bleaching_alert`, dispatches a dashboard data refresh (refetch APIs)
+ * - Shows a sonner Toast with a "View on Map" CTA when temp > 31°C (bleaching only)
  * - Reconnects automatically on disconnect
  *
  * Mount <AlertWebSocket /> once in layout.tsx — it renders nothing to the DOM.
@@ -18,6 +19,7 @@ import useWebSocket from 'react-use-websocket';
 import { toast } from 'sonner';
 
 import { getBleachingAlertsWebSocketUrl } from './api-base';
+import { dispatchDashboardDataRefresh } from './data-refresh';
 
 interface AlertMessage {
   type: string;
@@ -44,7 +46,10 @@ function AlertWebSocketConnected({ url }: { url: string }) {
 
   useEffect(() => {
     if (!lastJsonMessage) return;
-    const msg = lastJsonMessage as AlertMessage;
+    const msg = lastJsonMessage as AlertMessage & { type?: string };
+    if (msg.type === 'reading_new' || msg.type === 'bleaching_alert') {
+      dispatchDashboardDataRefresh();
+    }
     if (msg.type !== 'bleaching_alert') return;
 
     const loc = msg.location_name ?? msg.sensor_uid;

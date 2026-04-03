@@ -13,6 +13,7 @@ import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { DashboardKPI, SensorNode, TemperatureReading } from '@/lib/types';
 import { useDashboardStore } from '@/lib/store';
 import { deriveNodeStatusFromAgeMinutes } from '@/lib/node-status';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 export default function DashboardPage() {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
@@ -26,7 +27,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const load = async () => {
       try {
         const latest = await getLatestReadings();
         const anyLatest = latest as any;
@@ -39,9 +40,12 @@ export default function DashboardPage() {
       } catch {
         if (!cancelled) setLatestReadings([]);
       }
-    })();
+    };
+    load();
+    const unsub = subscribeDashboardDataRefresh(load);
     return () => {
       cancelled = true;
+      unsub();
     };
   }, [setAvailableNodes]);
 

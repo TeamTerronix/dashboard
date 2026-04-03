@@ -8,6 +8,7 @@ import {
 import { useDashboardStore } from '@/lib/store';
 import { getSST } from '@/lib/api';
 import type { TemperatureReading } from '@/lib/types';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 const COLORS = [
   '#00E5FF', '#1DE9B6', '#FFB300', '#FF5252', '#7C4DFF',
@@ -19,9 +20,14 @@ export default function AnalyticsPage() {
   const { selectedNodes } = useDashboardStore();
   const [mounted, setMounted] = useState(false);
   const [temperatureReadings, setTemperatureReadings] = useState<TemperatureReading[]>([]);
+  const [dataRefreshTick, setDataRefreshTick] = useState(0);
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    return subscribeDashboardDataRefresh(() => setDataRefreshTick((t) => t + 1));
   }, []);
 
   useEffect(() => {
@@ -47,7 +53,7 @@ export default function AnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dataRefreshTick]);
 
   // Time series data (kept for distribution/stats)
   const chartData = useMemo(() => {
@@ -61,7 +67,7 @@ export default function AnalyticsPage() {
     return Object.entries(dateMap)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, nodes]) => ({ date: date.slice(5), ...nodes }));
-  }, [selectedNodes]);
+  }, [selectedNodes, temperatureReadings]);
 
   // Distribution histogram
   const histData = useMemo(() => {
@@ -74,7 +80,7 @@ export default function AnalyticsPage() {
     return Object.entries(bins)
       .sort(([a], [b]) => parseFloat(a) - parseFloat(b))
       .map(([temp, count]) => ({ temp, count }));
-  }, [selectedNodes]);
+  }, [selectedNodes, temperatureReadings]);
 
   // Per-node statistics
   const nodeStats = useMemo(() => {
@@ -96,7 +102,7 @@ export default function AnalyticsPage() {
         count: temps.length,
       };
     });
-  }, [selectedNodes]);
+  }, [selectedNodes, temperatureReadings]);
 
   // Correlation scatter data (BR-01 vs BR-07 for example)
   const scatterData = useMemo(() => {

@@ -15,6 +15,7 @@ import {
 import { useDashboardStore } from '@/lib/store';
 import { getSST, getPredictions } from '@/lib/api';
 import type { TemperatureReading } from '@/lib/types';
+import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
 
 const NODE_COLORS = [
   '#00E5FF', '#1DE9B6', '#FFB300', '#FF5252', '#7C4DFF',
@@ -46,9 +47,14 @@ export default function TemperatureChart() {
   const [mounted, setMounted] = useState(false);
   const [readings, setReadings] = useState<TemperatureReading[]>([]);
   const [forecastByNode, setForecastByNode] = useState<Record<string, { time: string; predicted: number }[]>>({});
+  const [dataRefreshTick, setDataRefreshTick] = useState(0);
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    return subscribeDashboardDataRefresh(() => setDataRefreshTick((t) => t + 1));
   }, []);
 
   useEffect(() => {
@@ -74,7 +80,7 @@ export default function TemperatureChart() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dataRefreshTick]);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,7 +104,7 @@ export default function TemperatureChart() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [dataRefreshTick]);
 
   const chartData = useMemo(() => {
     const dateMap: Record<string, Record<string, number>> = {};
