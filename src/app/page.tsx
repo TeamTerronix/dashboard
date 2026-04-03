@@ -7,7 +7,7 @@ import AlertFeed from '@/components/dashboard/AlertFeed';
 import MLQuickInsight from '@/components/dashboard/MLQuickInsight';
 import { ChevronDown, MapPin, Thermometer, Activity, Wifi, WifiOff, Clock } from 'lucide-react';
 import Link from 'next/link';
-import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
+import { getLatestReadings, getStats, mapLatestReadingRow, type StatsApiResponse } from '@/lib/api';
 import { resolveNodeAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { DashboardKPI, SensorNode, TemperatureReading } from '@/lib/types';
@@ -24,21 +24,26 @@ export default function DashboardPage() {
   const { setAvailableNodes } = useDashboardStore();
 
   const [latestReadings, setLatestReadings] = useState<TemperatureReading[]>([]);
+  const [stats, setStats] = useState<StatsApiResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const latest = await getLatestReadings();
+        const [latest, st] = await Promise.all([getLatestReadings(), getStats()]);
         const anyLatest = latest as any;
         const rows = (Array.isArray(anyLatest?.value) ? anyLatest.value : anyLatest) as any[];
         const mapped: TemperatureReading[] = rows.map((r) => mapLatestReadingRow(r));
         if (!cancelled) {
           setLatestReadings(mapped);
           setAvailableNodes(mapped.map((m) => m.nodeId));
+          setStats(st);
         }
       } catch {
-        if (!cancelled) setLatestReadings([]);
+        if (!cancelled) {
+          setLatestReadings([]);
+          setStats(null);
+        }
       }
     };
     load();
@@ -117,18 +122,27 @@ export default function DashboardPage() {
 
   const dashboardKPIs: DashboardKPI[] = useMemo(() => {
     const temps = latestReadings.map((r) => r.temperature).filter((t) => !Number.isNaN(t));
-    const mean = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
-    const max = temps.length ? Math.max(...temps) : 0;
+    const fallbackMean = temps.length ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+    const fallbackMax = temps.length ? Math.max(...temps) : 0;
+    const mean =
+      stats?.avg_temperature_24h != null && !Number.isNaN(stats.avg_temperature_24h)
+        ? stats.avg_temperature_24h
+        : fallbackMean;
+    const maxT =
+      stats?.max_temperature_24h != null && !Number.isNaN(stats.max_temperature_24h)
+        ? stats.max_temperature_24h
+        : fallbackMax;
+    const totalStored = stats?.total_sst_records ?? 0;
     const online = sensorNodes.filter((n) => n.status === 'online').length;
     const total = sensorNodes.length;
     return [
-      { label: 'Current Mean T°', value: mean.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: mean >= 30 ? 'danger' : mean >= 28 ? 'warning' : 'normal' },
-      { label: 'Max Temp', value: max.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: max >= 31 ? 'danger' : max >= 30 ? 'warning' : 'normal' },
+      { label: 'Mean T° (24h)', value: mean.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: mean >= 30 ? 'danger' : mean >= 28 ? 'warning' : 'normal' },
+      { label: 'Max T° (24h)', value: maxT.toFixed(1), unit: '°C', delta: '', deltaDirection: 'neutral', sparkline: [], status: maxT >= 31 ? 'danger' : maxT >= 30 ? 'warning' : 'normal' },
       { label: 'Active Nodes', value: `${online}/${total}`, unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: total && online / total < 0.6 ? 'warning' : 'normal' },
       { label: 'Networks', value: String(areas.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
-      { label: 'Latest Readings', value: String(latestReadings.length), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
+      { label: 'Total readings', value: String(totalStored), unit: '', delta: '', deltaDirection: 'neutral', sparkline: [], status: 'normal' },
     ];
-  }, [latestReadings, sensorNodes, areas.length]);
+  }, [latestReadings, sensorNodes, areas.length, stats]);
 
   if (areasLoading) {
     return (

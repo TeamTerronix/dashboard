@@ -53,7 +53,18 @@ async function fetchAPI<T>(endpoint: string, init?: RequestInit): Promise<T> {
 
 // --- Endpoints ---
 
-export async function getStats() {
+export interface StatsApiResponse {
+  total_sst_records: number;
+  total_dhw_records: number;
+  total_predictions: number;
+  date_range: { start: string | null; end: string | null };
+  unique_coordinates: number;
+  avg_temperature_24h?: number | null;
+  max_temperature_24h?: number | null;
+  readings_count_24h?: number;
+}
+
+export async function getStats(): Promise<StatsApiResponse> {
   return fetchAPI('/api/stats');
 }
 
