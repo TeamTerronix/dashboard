@@ -7,6 +7,7 @@ import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
 import { resolveNodeAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
+import { deriveNodeStatusFromAgeMinutes } from '@/lib/node-status';
 
 export default function NodesPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -37,7 +38,7 @@ export default function NodesPage() {
       const areaId = resolveNodeAreaId(r, areas);
       const t = Date.parse(r.time);
       const ageMins = Number.isFinite(t) ? (Date.now() - t) / 60000 : 1e9;
-      const status: SensorNode['status'] = ageMins < 120 ? 'online' : ageMins < 2880 ? 'delayed' : 'offline';
+      const status = deriveNodeStatusFromAgeMinutes(ageMins);
       return {
         id: r.nodeId,
         name: r.nodeId,

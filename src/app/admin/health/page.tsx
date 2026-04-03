@@ -3,13 +3,10 @@
 /**
  * /admin/health — Admin Device Health Portal
  *
- * Displays every registered sensor node with:
- *   - Last Sync time
- *   - Battery level (colour-coded)
- *   - Connection status:
- *       Online  — last sync within 2 hours of the most recent sync date in data
- *       Delayed — last sync within 48 hours
- *       Offline — last sync older than 48 hours (or status === 'offline')
+ * Connection status uses wall-clock age of last sync (daily batch uploads):
+ *   Online  — last reading &lt; 48h
+ *   Delayed — 48h–72h
+ *   Offline — ≥ 72h
  */
 
 import { useMemo, useState } from 'react';
@@ -19,22 +16,7 @@ import { resolveNodeAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
 import type { SensorNode, TemperatureReading } from '@/lib/types';
 import { useEffect } from 'react';
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-function parseSync(iso: string): Date {
-  return new Date(iso);
-}
-
-/** Compute connectivity status relative to the latest known sync in the dataset. */
-function deriveStatus(lastSync: string, latestKnown: Date): 'online' | 'delayed' | 'offline' {
-  const syncDate = parseSync(lastSync);
-  const diffMs = latestKnown.getTime() - syncDate.getTime();
-  const diffHours = diffMs / 3_600_000;
-  if (diffHours <= 2) return 'online';
-  if (diffHours <= 48) return 'delayed';
-  return 'offline';
-}
+import { deriveNodeStatusFromLastSyncIso, nodeStatusThresholdHelp } from '@/lib/node-status';
 
 function batteryColor(pct: number): string {
   if (pct > 50) return 'var(--accent-teal)';
@@ -96,18 +78,12 @@ export default function AdminHealthPage() {
     });
   }, [latestReadings, areas]);
 
-  // Reference "now" = latest lastSync across all nodes
-  const latestKnown = useMemo(() => {
-    if (sensorNodes.length === 0) return new Date();
-    return new Date(Math.max(...sensorNodes.map((n) => parseSync(n.lastSync).getTime())));
-  }, [sensorNodes]);
-
   const rows = useMemo(() => {
     return sensorNodes
       .map((n) => ({
         ...n,
         area: areas.find((a) => a.id === n.areaId)?.name ?? n.areaId,
-        connectivity: deriveStatus(n.lastSync, latestKnown),
+        connectivity: deriveNodeStatusFromLastSyncIso(n.lastSync),
       }))
       .filter((n) => {
         const q = search.toLowerCase();
@@ -116,7 +92,7 @@ export default function AdminHealthPage() {
         if (statusFilter !== 'all' && n.connectivity !== statusFilter) return false;
         return true;
       });
-  }, [search, areaFilter, statusFilter, latestKnown, sensorNodes]);
+  }, [search, areaFilter, statusFilter, sensorNodes, areas]);
 
   const online  = rows.filter((n) => n.connectivity === 'online').length;
   const delayed = rows.filter((n) => n.connectivity === 'delayed').length;
@@ -229,7 +205,7 @@ export default function AdminHealthPage() {
           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}
         >
           <RefreshCw className="w-3.5 h-3.5" />
-          Reference: {latestKnown.toISOString().replace('T', ' ').slice(0, 16)} UTC
+          {nodeStatusThresholdHelp()}
         </div>
       </div>
 
