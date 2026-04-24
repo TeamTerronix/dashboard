@@ -1,15 +1,20 @@
 'use client';
 
 import { tempToColor } from '@/lib/utils';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Expand } from 'lucide-react';
 import { getLatestReadings } from '@/lib/api';
 import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 export default function MiniHeatmap() {
   const [points, setPoints] = useState<{ lat: number; lon: number; temp: number }[]>([]);
   const [mounted, setMounted] = useState(false);
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const layerRef = useRef<L.LayerGroup | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,23 +49,63 @@ export default function MiniHeatmap() {
   const latMin = 5.8, latMax = 9.1;
   const lonMin = 79.4, lonMax = 81.4;
 
-  const toX = (lon: number) => ((lon - lonMin) / (lonMax - lonMin)) * W;
-  const toY = (lat: number) => H - ((lat - latMin) / (latMax - latMin)) * H;
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
 
-  // Very simplified Sri Lanka outline (lat, lon). Mini preview only (not for GIS accuracy).
-  const sriLankaOutline: Array<[number, number]> = [
-    [9.82, 80.05], [9.62, 79.95], [9.35, 79.88], [9.05, 79.82],
-    [8.75, 79.75], [8.25, 79.62], [7.85, 79.60], [7.35, 79.62],
-    [6.95, 79.70], [6.55, 79.83], [6.20, 79.92], [5.95, 80.05],
-    [5.85, 80.20], [5.90, 80.38], [6.05, 80.58], [6.25, 80.78],
-    [6.55, 80.98], [6.95, 81.20], [7.35, 81.32], [7.80, 81.30],
-    [8.20, 81.22], [8.55, 81.08], [8.90, 80.90], [9.20, 80.75],
-    [9.45, 80.55], [9.65, 80.35], [9.82, 80.15],
-  ];
+    // Small non-interactive Leaflet map for the dashboard card.
+    const map = L.map(mapRef.current, {
+      center: [(latMin + latMax) / 2, (lonMin + lonMax) / 2],
+      zoom: 7,
+      zoomControl: false,
+      attributionControl: false,
+      dragging: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
+      tap: false,
+      touchZoom: false,
+    });
 
-  const sriPathD = sriLankaOutline
-    .map(([lat, lon], i) => `${i === 0 ? 'M' : 'L'} ${toX(lon).toFixed(2)} ${toY(lat).toFixed(2)}`)
-    .join(' ') + ' Z';
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap',
+    }).addTo(map);
+
+    map.fitBounds([[latMin, lonMin], [latMax, lonMax]], { padding: [6, 6] });
+
+    const layer = L.layerGroup().addTo(map);
+    mapInstanceRef.current = map;
+    layerRef.current = layer;
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+      layerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update markers when points change.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const layer = layerRef.current;
+    if (!map || !layer) return;
+
+    layer.clearLayers();
+    for (const p of points) {
+      const color = tempToColor(p.temp);
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: 6,
+        color: '#ffffff',
+        weight: 1.5,
+        opacity: 0.9,
+        fillColor: color,
+        fillOpacity: 0.9,
+      });
+      marker.addTo(layer);
+    }
+  }, [points]);
 
   return (
     <div
@@ -76,24 +121,16 @@ export default function MiniHeatmap() {
         </Link>
       </div>
 
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg" style={{ background: 'var(--bg-primary)' }}>
-        {/* Sri Lanka silhouette */}
-        <path
-          d={sriPathD}
-          fill="rgba(255,255,255,0.04)"
-          stroke="var(--grid-line)"
-          strokeWidth={1.2}
-          opacity={0.9}
+      <div
+        className="w-full rounded-lg overflow-hidden"
+        style={{ background: 'var(--bg-primary)', width: W, height: H, maxWidth: '100%' }}
+      >
+        {/* Leaflet needs an explicit-size container */}
+        <div
+          ref={mapRef}
+          style={{ width: '100%', height: '100%', opacity: mounted ? 1 : 0.7 }}
         />
-
-        {/* Latest readings */}
-        {mounted && points.map((p, i) => (
-          <g key={i}>
-            <circle cx={toX(p.lon)} cy={toY(p.lat)} r={6} fill={tempToColor(p.temp)} opacity={0.85} />
-            <circle cx={toX(p.lon)} cy={toY(p.lat)} r={2.5} fill="white" opacity={0.9} />
-          </g>
-        ))}
-      </svg>
+      </div>
 
       {/* Legend */}
       <div className="flex items-center justify-between text-[10px]" style={{ color: 'var(--text-secondary)' }}>
