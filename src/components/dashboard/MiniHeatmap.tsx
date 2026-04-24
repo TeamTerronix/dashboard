@@ -47,6 +47,21 @@ export default function MiniHeatmap() {
   const toX = (lon: number) => ((lon - lonMin) / (lonMax - lonMin)) * W;
   const toY = (lat: number) => H - ((lat - latMin) / (latMax - latMin)) * H;
 
+  // Very simplified Sri Lanka outline (lat, lon). Mini preview only (not for GIS accuracy).
+  const sriLankaOutline: Array<[number, number]> = [
+    [9.82, 80.05], [9.62, 79.95], [9.35, 79.88], [9.05, 79.82],
+    [8.75, 79.75], [8.25, 79.62], [7.85, 79.60], [7.35, 79.62],
+    [6.95, 79.70], [6.55, 79.83], [6.20, 79.92], [5.95, 80.05],
+    [5.85, 80.20], [5.90, 80.38], [6.05, 80.58], [6.25, 80.78],
+    [6.55, 80.98], [6.95, 81.20], [7.35, 81.32], [7.80, 81.30],
+    [8.20, 81.22], [8.55, 81.08], [8.90, 80.90], [9.20, 80.75],
+    [9.45, 80.55], [9.65, 80.35], [9.82, 80.15],
+  ];
+
+  const sriPathD = sriLankaOutline
+    .map(([lat, lon], i) => `${i === 0 ? 'M' : 'L'} ${toX(lon).toFixed(2)} ${toY(lat).toFixed(2)}`)
+    .join(' ') + ' Z';
+
   return (
     <div
       className="rounded-xl border p-4 flex flex-col gap-3"
@@ -62,6 +77,15 @@ export default function MiniHeatmap() {
       </div>
 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-lg" style={{ background: 'var(--bg-primary)' }}>
+        {/* Sri Lanka silhouette */}
+        <path
+          d={sriPathD}
+          fill="rgba(255,255,255,0.04)"
+          stroke="var(--grid-line)"
+          strokeWidth={1.2}
+          opacity={0.9}
+        />
+
         {/* Latest readings */}
         {mounted && points.map((p, i) => (
           <g key={i}>
