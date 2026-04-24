@@ -281,7 +281,6 @@ export default function MapPage() {
                 ['Status', selectedNodeData.status],
                 ['Area', areas.find((a) => a.id === selectedNodeData.areaId)?.name ?? '—'],
                 ['Depth', `${selectedNodeData.depth}m`],
-                ['Battery', `${selectedNodeData.battery}%`],
                 ['Last Sync', selectedNodeData.lastSync.split('T')[0]],
                 ['Lat', selectedNodeData.latitude.toFixed(4)],
                 ['Lon', selectedNodeData.longitude.toFixed(4)],

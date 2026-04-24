@@ -493,7 +493,6 @@ export default function SensorMap({
             <p style="margin:2px 0;font-size:12px">Temp: <strong>${tempStr}</strong></p>
             <p style="margin:2px 0;font-size:12px">Status: <strong>${node.status}</strong></p>
             <p style="margin:2px 0;font-size:12px">Depth: ${node.depth}m</p>
-            <p style="margin:2px 0;font-size:12px">Battery: ${node.battery}%</p>
             <p style="margin:2px 0;font-size:12px">Lat: ${node.latitude.toFixed(4)}</p>
             <p style="margin:2px 0;font-size:12px">Lon: ${node.longitude.toFixed(4)}</p>
             <p style="margin:2px 0;font-size:12px">Readings: ${node.totalReadings.toLocaleString()}</p>

@@ -1,6 +1,6 @@
 'use client';
 
-import { Battery, Wifi, WifiOff, Clock, Signal } from 'lucide-react';
+import { Wifi, WifiOff, Clock, Signal } from 'lucide-react';
 import { timeAgo } from '@/lib/utils';
 import { useEffect, useMemo, useState } from 'react';
 import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
@@ -109,7 +109,6 @@ export default function NodesPage() {
               <th className="text-left py-2 px-2">Network</th>
               <th className="text-left py-2 px-2">Status</th>
               <th className="text-right py-2 px-2">Depth</th>
-              <th className="text-right py-2 px-2">Battery</th>
               <th className="text-left py-2 px-2">Last TX</th>
               <th className="text-right py-2 px-2">Readings</th>
               <th className="text-left py-2 px-2">Health</th>
@@ -117,7 +116,7 @@ export default function NodesPage() {
           </thead>
           <tbody>
             {sensorNodes.map((node) => {
-              const healthPct = node.status === 'offline' ? 0 : node.status === 'delayed' ? 40 : Math.min(100, node.battery + 20);
+              const healthPct = node.status === 'offline' ? 0 : node.status === 'delayed' ? 50 : 90;
               const healthColor =
                 node.status === 'offline'
                   ? 'var(--danger-coral)'
@@ -175,17 +174,6 @@ export default function NodesPage() {
                     </span>
                   </td>
                   <td className="py-2.5 px-2 text-right font-mono">{node.depth}m</td>
-                  <td className="py-2.5 px-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Battery
-                        className="w-3.5 h-3.5"
-                        style={{
-                          color: 'var(--text-secondary)',
-                        }}
-                      />
-                      <span className="font-mono">{node.battery}%</span>
-                    </div>
-                  </td>
                   <td className="py-2.5 px-2" style={{ color: 'var(--text-secondary)' }}>
                     {timeAgo(node.lastSync)}
                   </td>

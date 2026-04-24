@@ -10,7 +10,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { ShieldCheck, Wifi, WifiOff, Clock, Battery, Search, RefreshCw } from 'lucide-react';
+import { ShieldCheck, Wifi, WifiOff, Clock, Search, RefreshCw } from 'lucide-react';
 import { getLatestReadings, mapLatestReadingRow } from '@/lib/api';
 import { resolveNodeAreaId } from '@/lib/geo';
 import { useMonitoringAreas } from '@/lib/useMonitoringAreas';
@@ -18,12 +18,6 @@ import type { SensorNode, TemperatureReading } from '@/lib/types';
 import { useEffect } from 'react';
 import { deriveNodeStatusFromLastSyncIso, nodeStatusThresholdHelp } from '@/lib/node-status';
 import { subscribeDashboardDataRefresh } from '@/lib/data-refresh';
-
-function batteryColor(pct: number): string {
-  if (pct > 50) return 'var(--accent-teal)';
-  if (pct > 20) return 'var(--warn-amber)';
-  return 'var(--danger-coral)';
-}
 
 function statusBadge(s: 'online' | 'delayed' | 'offline') {
   const map = {
@@ -221,7 +215,7 @@ export default function AdminHealthPage() {
         <table className="w-full text-xs">
           <thead>
             <tr style={{ background: 'var(--bg-elevated)', borderBottom: '1px solid var(--border)' }}>
-              {['Node ID', 'Name', 'Area', 'Depth', 'Battery', 'Last Sync', 'Total Readings', 'Status'].map((h) => (
+              {['Node ID', 'Name', 'Area', 'Depth', 'Last Sync', 'Total Readings', 'Status'].map((h) => (
                 <th
                   key={h}
                   className="px-4 py-3 text-left font-semibold"
@@ -262,29 +256,6 @@ export default function AdminHealthPage() {
                   {/* Depth */}
                   <td className="px-4 py-3 font-mono" style={{ color: 'var(--text-secondary)' }}>
                     {node.depth}m
-                  </td>
-
-                  {/* Battery */}
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
-                      <Battery className="w-3.5 h-3.5" style={{ color: batteryColor(node.battery) }} />
-                      <span className="font-mono font-bold" style={{ color: batteryColor(node.battery) }}>
-                        {node.battery}%
-                      </span>
-                      {/* Mini battery bar */}
-                      <div
-                        className="w-12 h-1.5 rounded-full overflow-hidden"
-                        style={{ background: 'var(--bg-elevated)' }}
-                      >
-                        <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${node.battery}%`,
-                            background: batteryColor(node.battery),
-                          }}
-                        />
-                      </div>
-                    </div>
                   </td>
 
                   {/* Last Sync */}

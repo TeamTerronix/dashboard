@@ -191,7 +191,6 @@ export default function DeckMap({
             <p>Temp: <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>{tooltip.object.temperature.toFixed(2)}°C</span></p>
             <p>Name: {tooltip.object.name}</p>
             <p>Depth: {tooltip.object.depth}m</p>
-            <p>Battery: {tooltip.object.battery}%</p>
             <p>Status: {tooltip.object.status}</p>
           </div>
         </div>
