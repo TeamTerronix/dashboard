@@ -63,7 +63,6 @@ export default function MiniHeatmap() {
       doubleClickZoom: false,
       boxZoom: false,
       keyboard: false,
-      tap: false,
       touchZoom: false,
     });
 
