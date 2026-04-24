@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import TopBar from '@/components/layout/TopBar';
+import AutoRefreshTicker from '@/components/layout/AutoRefreshTicker';
 import { AlertWebSocket } from '@/lib/websocket';
 import { getToken, subscribeAuthChanged } from '@/lib/auth';
 
@@ -49,6 +50,7 @@ export default function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AlertWebSocket />
+      <AutoRefreshTicker />
       <Sidebar />
       <div className="ml-56 min-h-screen flex flex-col transition-all duration-300">
         <TopBar />

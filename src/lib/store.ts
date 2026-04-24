@@ -1,6 +1,7 @@
 // Zustand store for global dashboard state
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 interface DashboardState {
   // Sidebar
@@ -25,40 +26,75 @@ interface DashboardState {
   unit: 'celsius' | 'fahrenheit';
   toggleUnit: () => void;
 
+  // Settings (persisted)
+  refreshIntervalSec: number;      // auto-refresh polling interval
+  thresholdWarningC: number;       // chart warning threshold (°C)
+  thresholdCriticalC: number;      // chart critical threshold (°C)
+  setRefreshIntervalSec: (sec: number) => void;
+  setThresholdWarningC: (c: number) => void;
+  setThresholdCriticalC: (c: number) => void;
+  resetSettings: () => void;
+
   // Active page
   activePage: string;
   setActivePage: (page: string) => void;
 }
 
-export const useDashboardStore = create<DashboardState>((set) => ({
-  sidebarCollapsed: false,
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+const DEFAULT_SETTINGS = {
+  refreshIntervalSec: 300,
+  thresholdWarningC: 28.0,
+  thresholdCriticalC: 29.0,
+} as const;
 
-  dateRange: { from: '2026-01-26', to: '2026-02-25' },
-  setDateRange: (from, to) => set({ dateRange: { from, to } }),
+export const useDashboardStore = create<DashboardState>()(
+  persist(
+    (set) => ({
+      sidebarCollapsed: false,
+      toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
 
-  availableNodes: [],
-  setAvailableNodes: (nodeIds) =>
-    set((s) => ({
-      availableNodes: nodeIds,
-      // If nothing selected yet, auto-select all loaded nodes.
-      selectedNodes: s.selectedNodes.length === 0 ? nodeIds : s.selectedNodes,
-    })),
+      dateRange: { from: '2026-01-26', to: '2026-02-25' },
+      setDateRange: (from, to) => set({ dateRange: { from, to } }),
 
-  selectedNodes: [],
-  toggleNode: (nodeId) =>
-    set((s) => ({
-      selectedNodes: s.selectedNodes.includes(nodeId)
-        ? s.selectedNodes.filter((id) => id !== nodeId)
-        : [...s.selectedNodes, nodeId],
-    })),
-  selectAllNodes: () => set((s) => ({ selectedNodes: s.availableNodes })),
-  deselectAllNodes: () => set({ selectedNodes: [] }),
+      availableNodes: [],
+      setAvailableNodes: (nodeIds) =>
+        set((s) => ({
+          availableNodes: nodeIds,
+          // If nothing selected yet, auto-select all loaded nodes.
+          selectedNodes: s.selectedNodes.length === 0 ? nodeIds : s.selectedNodes,
+        })),
 
-  unit: 'celsius',
-  toggleUnit: () =>
-    set((s) => ({ unit: s.unit === 'celsius' ? 'fahrenheit' : 'celsius' })),
+      selectedNodes: [],
+      toggleNode: (nodeId) =>
+        set((s) => ({
+          selectedNodes: s.selectedNodes.includes(nodeId)
+            ? s.selectedNodes.filter((id) => id !== nodeId)
+            : [...s.selectedNodes, nodeId],
+        })),
+      selectAllNodes: () => set((s) => ({ selectedNodes: s.availableNodes })),
+      deselectAllNodes: () => set({ selectedNodes: [] }),
 
-  activePage: 'dashboard',
-  setActivePage: (page) => set({ activePage: page }),
-}));
+      unit: 'celsius',
+      toggleUnit: () => set((s) => ({ unit: s.unit === 'celsius' ? 'fahrenheit' : 'celsius' })),
+
+      refreshIntervalSec: DEFAULT_SETTINGS.refreshIntervalSec,
+      thresholdWarningC: DEFAULT_SETTINGS.thresholdWarningC,
+      thresholdCriticalC: DEFAULT_SETTINGS.thresholdCriticalC,
+      setRefreshIntervalSec: (sec) => set({ refreshIntervalSec: sec }),
+      setThresholdWarningC: (c) => set({ thresholdWarningC: c }),
+      setThresholdCriticalC: (c) => set({ thresholdCriticalC: c }),
+      resetSettings: () => set({ ...DEFAULT_SETTINGS }),
+
+      activePage: 'dashboard',
+      setActivePage: (page) => set({ activePage: page }),
+    }),
+    {
+      name: 'sliot_dashboard_store',
+      partialize: (s) => ({
+        unit: s.unit,
+        refreshIntervalSec: s.refreshIntervalSec,
+        thresholdWarningC: s.thresholdWarningC,
+        thresholdCriticalC: s.thresholdCriticalC,
+      }),
+    },
+  ),
+);

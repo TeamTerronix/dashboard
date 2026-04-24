@@ -44,6 +44,8 @@ function CustomLegend() {
 
 export default function TemperatureChart() {
   const { selectedNodes } = useDashboardStore();
+  const thresholdWarningC = useDashboardStore((s) => s.thresholdWarningC);
+  const thresholdCriticalC = useDashboardStore((s) => s.thresholdCriticalC);
   const [mounted, setMounted] = useState(false);
   const [readings, setReadings] = useState<TemperatureReading[]>([]);
   const [forecastByNode, setForecastByNode] = useState<Record<string, { time: string; predicted: number }[]>>({});
@@ -196,16 +198,26 @@ export default function TemperatureChart() {
 
               {/* Threshold reference lines */}
               <ReferenceLine
-                y={28}
+                y={thresholdWarningC}
                 stroke="var(--warn-amber)"
                 strokeDasharray="5 5"
-                label={{ value: '28°C Warning', fill: 'var(--warn-amber)', fontSize: 10, position: 'right' }}
+                label={{
+                  value: `${thresholdWarningC.toFixed(1)}°C Warning`,
+                  fill: 'var(--warn-amber)',
+                  fontSize: 10,
+                  position: 'right',
+                }}
               />
               <ReferenceLine
-                y={30}
+                y={thresholdCriticalC}
                 stroke="var(--danger-coral)"
                 strokeDasharray="5 5"
-                label={{ value: '30°C Danger', fill: 'var(--danger-coral)', fontSize: 10, position: 'right' }}
+                label={{
+                  value: `${thresholdCriticalC.toFixed(1)}°C Critical`,
+                  fill: 'var(--danger-coral)',
+                  fontSize: 10,
+                  position: 'right',
+                }}
               />
               <ReferenceLine
                 y={31}
